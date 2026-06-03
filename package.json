@@ -5,11 +5,12 @@
   "type": "module",
   "description": "TypeScript port of Innovation: boardgame.io engine wrapped by the digital-boardgame-framework (web + async multiplayer). Ported from the Innovation.Core C# engine.",
   "scripts": {
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
-    "dev": "vite",
-    "smoke": "vite-node scripts/smoke-rollout.ts",
-    "test": "vitest run"
+    "build": "npm run gen-cards && tsc --noEmit && vite build",
+    "typecheck": "npm run gen-cards && tsc --noEmit",
+    "dev": "npm run gen-cards && vite",
+    "smoke": "npm run gen-cards && vite-node scripts/smoke-rollout.ts",
+    "test": "npm run gen-cards && vitest run",
+    "gen-cards": "node scripts/build-card-data.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",

@@ -5,7 +5,7 @@
 //   0 ID  1 Age  2 Color  3 Title  4 Top  5 Left  6 Middle  7 Right
 //   8 Hexagon(info only)  9 Dogma Icon  10 Cond1  11 Cond2  12 Cond3
 
-import tsvRaw from '../data/cards.tsv?raw';
+import { CARDS_TSV as tsvRaw } from './cards-tsv-raw.generated';
 import type { CardDef, Color, IconName, DogmaEffectDef } from './engine/types';
 
 function parseIcon(s: string): IconName {
