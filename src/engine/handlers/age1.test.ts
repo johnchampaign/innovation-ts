@@ -142,6 +142,77 @@ describe('Agriculture', () => {
   });
 });
 
+describe('Archery (demand)', () => {
+  /** Remove a card from its age deck (use when seeding hand/board directly so
+   *  the same id can't be re-drawn). Mirrors what the real GameSetup does. */
+  function takeFromDeck(g: InnovationState, cardId: number): number {
+    const age = cardById(cardId).age;
+    const i = g.decks[age].indexOf(cardId);
+    if (i >= 0) g.decks[age].splice(i, 1);
+    return cardId;
+  }
+
+  // Build a 2-player game where the activator has a castle advantage so the
+  // demand actually hits player 1.
+  function archeryGame(p1HandTitles: string[]): InnovationState {
+    const g = freshGame(2);
+    // Activator: Domestication (yellow) — 2 castles → outranks p1's 0 castles.
+    const dom = takeFromDeck(g, cardByTitle('Domestication').id);
+    g.players['0'].piles.yellow.cards = [dom];
+    g.players['1'].hand = p1HandTitles.map((t) => takeFromDeck(g, cardByTitle(t).id));
+    return g;
+  }
+
+  it('via engine: pauses on the demanded player with tied-highest options', () => {
+    const g = archeryGame(['Agriculture']); // one age-1 in target's hand
+    const drewExpected = g.decks[1][0];
+    const done = startDogma(g, cardByTitle('Archery').id, '0');
+    expect(done).toBe(false);
+    expect(g.pendingChoice?.kind).toBe('select-hand-card');
+    expect(g.pendingChoice?.playerId).toBe('1'); // owned by the target
+    expect(g.pendingChoice?.optional).toBe(false);
+    // Target drew the top 1 — hand is now 2 cards, both age 1, both tied-highest.
+    expect(g.players['1'].hand).toContain(drewExpected);
+    expect(g.pendingChoice?.options.length).toBe(2);
+  });
+
+  it('via engine: target picks tied-highest → transferred to activator', () => {
+    const g = archeryGame(['Agriculture']);
+    startDogma(g, cardByTitle('Archery').id, '0');
+    const choice = g.pendingChoice!.options[0];
+    const done = resumeDogma(g, choice);
+    expect(done).toBe(true);
+    expect(g.players['0'].hand).toContain(choice);
+    expect(g.players['1'].hand).not.toContain(choice);
+  });
+
+  it('via engine: no demand target when activator has no icon advantage', () => {
+    const g = freshGame(2); // both players: 0 castles
+    const agri = takeFromDeck(g, cardByTitle('Agriculture').id);
+    g.players['1'].hand = [agri];
+    const done = startDogma(g, cardByTitle('Archery').id, '0');
+    expect(done).toBe(true);
+    expect(g.pendingChoice).toBeNull();
+    expect(g.players['1'].hand).toContain(agri); // untouched
+  });
+
+  function takeFromDeck(g: InnovationState, cardId: number): number {
+    const age = cardById(cardId).age;
+    const i = g.decks[age].indexOf(cardId);
+    if (i >= 0) g.decks[age].splice(i, 1);
+    return cardId;
+  }
+
+  it('demand does NOT trigger the shared-bonus draw', () => {
+    const g = archeryGame(['Agriculture']);
+    const handBefore = g.players['0'].hand.length;
+    startDogma(g, cardByTitle('Archery').id, '0');
+    resumeDogma(g, g.pendingChoice!.options[0]);
+    // Activator gained exactly the transferred card — no extra share-bonus draw.
+    expect(g.players['0'].hand.length).toBe(handBefore + 1);
+  });
+});
+
 describe('Pottery', () => {
   it('pauses with a subset prompt capped at three on first invocation', () => {
     const g = freshGame();

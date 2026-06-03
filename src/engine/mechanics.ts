@@ -114,6 +114,21 @@ export function returnFromHand(g: InnovationState, playerId: string, cardId: num
   g.decks[cardById(cardId).age].push(cardId);
 }
 
+/** Transfer a card from one player's hand to another's. Used by Archery and
+ *  other "I demand … transfer a card" handlers. */
+export function transferHandToHand(
+  g: InnovationState,
+  fromId: string,
+  toId: string,
+  cardId: number,
+): void {
+  const from = g.players[fromId];
+  const i = from.hand.indexOf(cardId);
+  if (i < 0) throw new Error(`transferHandToHand: card ${cardId} not in ${fromId}'s hand`);
+  from.hand.splice(i, 1);
+  g.players[toId].hand.push(cardId);
+}
+
 /** Apply a splay to a color pile. A pile of <2 cards can't be splayed; a splay
  *  matching the current direction is a no-op. */
 export function splay(g: InnovationState, playerId: string, color: Color, dir: Splay): boolean {

@@ -12,7 +12,7 @@
 import { registerDogma } from '../registry';
 import { cardById } from '../../card-data';
 import {
-  draw, drawAndMeld, drawAndScore, meldFromHand, returnFromHand,
+  draw, drawAndMeld, drawAndScore, meldFromHand, returnFromHand, transferHandToHand,
 } from '../mechanics';
 import type { ChoiceResponse } from '../types';
 
@@ -76,6 +76,38 @@ registerDogma('Agriculture', (g, target, ctx) => {
 //            the number of cards you returned."
 //   level 1: "Draw a 1."
 // One title-keyed handler runs for every level; branch on `ctx.levelIndex`.
+// Archery — "I demand you draw a 1, then transfer the highest card in your
+// hand to my hand!" Two-step: draw the 1, pause for the target to pick which
+// tied-highest to transfer (rulebook p.5: ties go to the target). The single-
+// highest case still pauses for symmetry; the adapter can auto-resolve when
+// there's only one option.
+registerDogma('Archery', (g, target, ctx) => {
+  if (!ctx.handlerState.drewAlready) {
+    draw(g, target, 1);
+    if (g.endByDraw) return true;
+    const hand = g.players[target].hand;
+    if (hand.length === 0) return true; // defensive — no transfer possible
+
+    const maxAge = Math.max(...hand.map((id) => cardById(id).age));
+    const eligible = hand.filter((id) => cardById(id).age === maxAge);
+    ctx.handlerState.drewAlready = true;
+    ctx.handlerState.activatingPlayerId = g.dogmaRun!.activatingPlayerId;
+    ctx.pendingChoice = {
+      kind: 'select-hand-card',
+      prompt: `Archery: transfer one of your age-${maxAge} cards to the activator's hand.`,
+      playerId: target,
+      options: eligible,
+      optional: false,
+    };
+    return; // pause (the draw alone is still progress; driver records it on resume)
+  }
+  // Resume: apply the transfer.
+  const cardId = ctx.response as number;
+  const activatorId = ctx.handlerState.activatingPlayerId as string;
+  transferHandToHand(g, target, activatorId, cardId);
+  return true;
+});
+
 registerDogma('Pottery', (g, target, ctx) => {
   if (ctx.levelIndex === 0) {
     if (!ctx.handlerState.asked) {
