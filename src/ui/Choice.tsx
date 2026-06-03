@@ -1,12 +1,11 @@
-// Modal-ish prompt for the in-flight dogma choice. The driver pauses by
-// setting G.pendingChoice; this component renders the prompt and emits a
-// ChoiceResponse via onSubmit.
+// In-flight dogma choice prompt. Cream theme to match the rest of the UI.
 
 import { useState } from 'react';
 import { cardById } from '../card-data';
 import { COLORS } from '../engine/types';
 import type { ChoiceResponse, PendingChoice } from '../engine/types';
 import { CardChip } from './Card';
+import { panelBg, textColor, cardBorder } from './colors';
 
 interface Props {
   pc: PendingChoice;
@@ -16,24 +15,26 @@ interface Props {
 export function ChoicePrompt({ pc, onSubmit }: Props) {
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       zIndex: 50,
     }}>
       <div style={{
-        maxWidth: 720, width: '92vw', maxHeight: '88vh', overflow: 'auto',
-        background: '#1a1d28', border: '1px solid #383b48', borderRadius: 10,
-        padding: '16px 20px',
-        boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+        maxWidth: 760, width: '92vw', maxHeight: '88vh', overflow: 'auto',
+        background: panelBg, border: `1px solid ${cardBorder}`, borderRadius: 8,
+        padding: '14px 18px',
+        boxShadow: '0 18px 50px rgba(0,0,0,0.35)',
+        color: textColor,
+        fontFamily: '"Segoe UI", system-ui, sans-serif',
       }}>
         <header style={{
           display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-          marginBottom: 10,
+          marginBottom: 8, borderBottom: '1px solid rgba(0,0,0,0.12)', paddingBottom: 6,
         }}>
           <strong style={{ fontSize: 14 }}>Player {pc.playerId}</strong>
-          <span style={{ fontSize: 12, opacity: 0.7 }}>{pc.kind}</span>
+          <span style={{ fontSize: 11, opacity: 0.7 }}>{pc.kind}</span>
         </header>
-        <p style={{ margin: '0 0 14px', lineHeight: 1.4 }}>{pc.prompt}</p>
+        <p style={{ margin: '6px 0 14px', lineHeight: 1.4, fontSize: 13 }}>{pc.prompt}</p>
         <ChoiceBody pc={pc} onSubmit={onSubmit} />
       </div>
     </div>
@@ -55,11 +56,7 @@ function ChoiceBody({ pc, onSubmit }: Props) {
         <>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {pc.options.map((idx) => (
-              <button
-                key={idx}
-                onClick={() => onSubmit(idx)}
-                style={pickButtonStyle()}
-              >
+              <button key={idx} onClick={() => onSubmit(idx)} style={pickButton()}>
                 {COLORS[idx]}
               </button>
             ))}
@@ -72,7 +69,7 @@ function ChoiceBody({ pc, onSubmit }: Props) {
         <>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {pc.options.map((v) => (
-              <button key={v} onClick={() => onSubmit(v)} style={pickButtonStyle()}>{v}</button>
+              <button key={v} onClick={() => onSubmit(v)} style={pickButton()}>{v}</button>
             ))}
           </div>
           {pc.optional && <DeclineButton onSubmit={onSubmit} />}
@@ -83,7 +80,7 @@ function ChoiceBody({ pc, onSubmit }: Props) {
         <>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {pc.options.map((id, i) => (
-              <button key={id} onClick={() => onSubmit(id)} style={pickButtonStyle()}>
+              <button key={id} onClick={() => onSubmit(id)} style={pickButton()}>
                 Player {pc.playerOptions?.[i] ?? id}
               </button>
             ))}
@@ -94,8 +91,8 @@ function ChoiceBody({ pc, onSubmit }: Props) {
     case 'yes-no':
       return (
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={() => onSubmit(true)} style={pickButtonStyle()}>Yes</button>
-          <button onClick={() => onSubmit(false)} style={pickButtonStyle()}>No</button>
+          <button onClick={() => onSubmit(true)} style={pickButton()}>Yes</button>
+          <button onClick={() => onSubmit(false)} style={pickButton(true)}>No</button>
         </div>
       );
     case 'select-hand-card-subset':
@@ -111,8 +108,8 @@ function ChoiceBody({ pc, onSubmit }: Props) {
 function CardGrid({ options, onPick }: { options: number[]; onPick: (id: number) => void }) {
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-      {options.map((id) => (
-        <CardChip key={id} cardId={id} compact onClick={() => onPick(id)} />
+      {options.map((id, i) => (
+        <CardChip key={`${id}-${i}`} cardId={id} onClick={() => onPick(id)} />
       ))}
     </div>
   );
@@ -121,7 +118,7 @@ function CardGrid({ options, onPick }: { options: number[]; onPick: (id: number)
 function DeclineButton({ onSubmit }: { onSubmit: (r: ChoiceResponse) => void }) {
   return (
     <div style={{ marginTop: 10 }}>
-      <button onClick={() => onSubmit(null)} style={pickButtonStyle(true)}>Decline</button>
+      <button onClick={() => onSubmit(null)} style={pickButton(true)}>Decline</button>
     </div>
   );
 }
@@ -141,7 +138,6 @@ function SubsetPicker({ pc, onSubmit }: Props) {
           <CardChip
             key={`${id}-${i}`}
             cardId={id}
-            compact
             selected={selected.includes(id)}
             onClick={() => toggle(id)}
           />
@@ -151,13 +147,9 @@ function SubsetPicker({ pc, onSubmit }: Props) {
         <span style={{ fontSize: 12, opacity: 0.7 }}>
           {selected.length} selected {min === max ? `(need ${min})` : `(${min}–${max})`}
         </span>
-        <button
-          onClick={() => onSubmit(selected)}
-          disabled={!canSubmit}
-          style={pickButtonStyle(false, !canSubmit)}
-        >Confirm</button>
+        <button onClick={() => onSubmit(selected)} disabled={!canSubmit} style={pickButton(false, !canSubmit)}>Confirm</button>
         {pc.optional && (
-          <button onClick={() => onSubmit(null)} style={pickButtonStyle(true)}>Decline</button>
+          <button onClick={() => onSubmit(null)} style={pickButton(true)}>Decline</button>
         )}
       </div>
     </>
@@ -176,39 +168,43 @@ function OrderPicker({ pc, onSubmit }: Props) {
   return (
     <>
       <p style={{ fontSize: 12, opacity: 0.7, marginTop: 0 }}>
-        Order is top→bottom (first card lands on top). Drag-style up/down buttons reorder.
+        Order is top→bottom (first card lands on top). Reorder with the ↑/↓ buttons.
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {order.map((id, i) => (
           <div key={`${id}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 20, fontSize: 12, opacity: 0.7 }}>#{i + 1}</span>
-            <button onClick={() => move(i, -1)} disabled={i === 0} style={smallButtonStyle()}>↑</button>
-            <button onClick={() => move(i, +1)} disabled={i === order.length - 1} style={smallButtonStyle()}>↓</button>
+            <span style={{ width: 22, fontSize: 12, opacity: 0.7 }}>#{i + 1}</span>
+            <button onClick={() => move(i, -1)} disabled={i === 0} style={smallButton()}>↑</button>
+            <button onClick={() => move(i, +1)} disabled={i === order.length - 1} style={smallButton()}>↓</button>
             <span style={{ fontSize: 12 }}>
-              {cardById(id).age} {cardById(id).title}
+              Age {cardById(id).age} — {cardById(id).title}
             </span>
           </div>
         ))}
       </div>
       <div style={{ marginTop: 12 }}>
-        <button onClick={() => onSubmit(order)} style={pickButtonStyle()}>Confirm order</button>
+        <button onClick={() => onSubmit(order)} style={pickButton()}>Confirm order</button>
       </div>
     </>
   );
 }
 
-function pickButtonStyle(secondary?: boolean, disabled?: boolean): React.CSSProperties {
+function pickButton(secondary?: boolean, disabled?: boolean): React.CSSProperties {
   return {
-    padding: '6px 12px', borderRadius: 4, border: '1px solid #4a4e5e',
-    background: disabled ? '#2a2c34' : secondary ? '#2d2f3a' : '#3b56a6',
-    color: disabled ? '#666' : '#fff', cursor: disabled ? 'not-allowed' : 'pointer',
+    padding: '6px 14px', borderRadius: 4,
+    border: `1px solid ${cardBorder}`,
+    background: disabled ? '#ddd9c5' : secondary ? '#e8e3c8' : '#a98a4b',
+    color: disabled ? '#888' : secondary ? textColor : '#fff',
+    cursor: disabled ? 'not-allowed' : 'pointer',
     fontSize: 13, fontWeight: 600,
+    fontFamily: '"Segoe UI", system-ui, sans-serif',
   };
 }
 
-function smallButtonStyle(): React.CSSProperties {
+function smallButton(): React.CSSProperties {
   return {
-    padding: '2px 8px', borderRadius: 3, border: '1px solid #4a4e5e',
-    background: '#2d2f3a', color: '#fff', cursor: 'pointer', fontSize: 12,
+    padding: '2px 8px', borderRadius: 3,
+    border: `1px solid ${cardBorder}`, background: '#e8e3c8',
+    color: textColor, cursor: 'pointer', fontSize: 12,
   };
 }

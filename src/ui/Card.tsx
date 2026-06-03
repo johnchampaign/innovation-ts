@@ -1,19 +1,21 @@
-// Card chip — the smallest visual unit. Renders one card as a colored tile
-// with title, age, and the four corner icons. Used in piles, hand, and choice
-// prompts.
+// Card chip — matches the C# CardTileView shape:
+//   • Colored HEADER  : top-icon slot (upper-left) + title + age + dogma icon
+//   • Colored FOOTER  : the three bottom icons (Left, Middle, Right)
+//   • The slot matching the card's hexagon ('none') renders as a translucent
+//     square so the four slots stay aligned.
 
 import type { CSSProperties } from 'react';
 import { cardById } from '../card-data';
-import { colorBg, colorFg, iconGlyph } from './colors';
+import { colorBg, colorBgDark, textColor, cardBorder, iconGlyph } from './colors';
 
 interface Props {
   cardId: number;
-  /** Visible icons override: if provided, only these corner indices are
-   *  rendered (rest are blanks). Used when rendering a splay-covered card. */
+  /** Visible icons override: render only these corner indices. Used for the
+   *  splay-revealed strips behind a top tile. */
   visibleSlots?: ReadonlyArray<0 | 1 | 2 | 3>;
   selected?: boolean;
-  /** Compact mode for the choice prompt + hand grids. */
-  compact?: boolean;
+  /** Compact: hand strip width, no footer if explicitly compact-summary. */
+  size?: 'tile' | 'summary';
   onClick?: () => void;
   style?: CSSProperties;
 }
@@ -21,74 +23,186 @@ interface Props {
 const ALL_SLOTS: ReadonlyArray<0 | 1 | 2 | 3> = [0, 1, 2, 3];
 
 export function CardChip({
-  cardId, visibleSlots = ALL_SLOTS, selected, compact, onClick, style,
+  cardId, visibleSlots = ALL_SLOTS, selected, size = 'tile', onClick, style,
 }: Props) {
   if (cardId < 0) {
     return (
       <div style={{
-        ...baseStyle(compact),
-        background: '#33363d',
-        color: '#9aa0aa',
-        cursor: 'default',
+        ...frame(size, selected),
+        background: '#d6d3bf',
+        color: '#7c7866',
         ...(style ?? {}),
       }}>
-        <span style={{ fontSize: compact ? 10 : 12, opacity: 0.7 }}>hidden</span>
+        <span style={{ fontSize: 11, opacity: 0.8 }}>hidden</span>
       </div>
     );
   }
   const card = cardById(cardId);
+  const interactive = !!onClick;
+
+  if (size === 'summary') {
+    // One-line strip: color block (color name short) + title + 3 footer icons.
+    return (
+      <div
+        role={interactive ? 'button' : undefined}
+        tabIndex={interactive ? 0 : undefined}
+        onClick={onClick}
+        style={{
+          ...summaryFrame(selected),
+          cursor: interactive ? 'pointer' : 'default',
+          ...(style ?? {}),
+        }}
+      >
+        <div style={{
+          width: 8, background: colorBg[card.color], flexShrink: 0,
+        }} />
+        <div style={{
+          flex: 1, padding: '4px 8px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          gap: 8, color: textColor,
+        }}>
+          <span style={{ fontWeight: 600, fontSize: 12 }}>{card.title}</span>
+          <span style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 11 }}>
+            <span style={{ opacity: 0.7 }}>Age {card.age}</span>
+            <span style={{ display: 'flex', gap: 2 }}>
+              {[1, 2, 3].map((s) => (
+                <IconCell key={s} icon={card.icons[s as 0 | 1 | 2 | 3]} size="tiny" />
+              ))}
+            </span>
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      role={onClick ? 'button' : undefined}
-      tabIndex={onClick ? 0 : undefined}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
       onClick={onClick}
-      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+      onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.(); } } : undefined}
       style={{
-        ...baseStyle(compact),
-        background: colorBg[card.color],
-        color: colorFg[card.color],
-        cursor: onClick ? 'pointer' : 'default',
-        outline: selected ? '3px solid #ffd95b' : 'none',
-        outlineOffset: selected ? -3 : 0,
+        ...frame(size, selected),
+        cursor: interactive ? 'pointer' : 'default',
         ...(style ?? {}),
       }}
     >
+      {/* HEADER ---------------------------------------------------------- */}
       <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
-        fontSize: compact ? 10 : 11, opacity: 0.85,
+        background: colorBg[card.color],
+        padding: '5px 6px 4px',
+        display: 'grid',
+        gridTemplateColumns: '28px 1fr',
+        columnGap: 6,
+        alignItems: 'start',
       }}>
-        <span style={{ fontWeight: 700 }}>{card.age}</span>
+        <IconCell icon={card.icons[0]} size="small" visible={visibleSlots.includes(0)} />
+        <div style={{ minWidth: 0 }}>
+          <div style={{
+            fontFamily: '"Segoe UI", system-ui, sans-serif',
+            fontWeight: 700, fontSize: 13, lineHeight: 1.15,
+            color: textColor, overflow: 'hidden', textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
+            {card.title}
+          </div>
+          <div style={{
+            marginTop: 2, fontSize: 10, color: textColor,
+            display: 'flex', gap: 6, alignItems: 'center', whiteSpace: 'nowrap',
+          }}>
+            <span>Age {card.age}</span>
+            <span>·</span>
+            <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
+              Dogma <IconCell icon={card.dogmaIcon} size="tiny" />
+            </span>
+          </div>
+        </div>
       </div>
+
+      {/* FOOTER ---------------------------------------------------------- */}
       <div style={{
-        fontWeight: 600, fontSize: compact ? 11 : 13, lineHeight: 1.15,
-        marginTop: 1, marginBottom: 'auto',
+        background: colorBgDark[card.color],
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, 1fr)',
+        gap: 4,
+        padding: '4px 6px',
       }}>
-        {card.title}
-      </div>
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2,
-        fontSize: compact ? 13 : 16, marginTop: 2, lineHeight: 1,
-      }}>
-        {ALL_SLOTS.map((slot) => (
-          <span key={slot} style={{ textAlign: 'center', opacity: visibleSlots.includes(slot) ? 1 : 0.15 }}>
-            {iconGlyph[card.icons[slot]]}
-          </span>
+        {[1, 2, 3].map((s) => (
+          <IconCell
+            key={s}
+            icon={card.icons[s as 0 | 1 | 2 | 3]}
+            size="small"
+            visible={visibleSlots.includes(s as 0 | 1 | 2 | 3)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function baseStyle(compact?: boolean): CSSProperties {
+/** A single icon slot. Renders the glyph centred; hexagon slot ('none') is a
+ *  translucent placeholder so the slot grid stays aligned. */
+function IconCell({
+  icon, size, visible = true,
+}: {
+  icon: import('../engine/types').IconName;
+  size: 'tiny' | 'small';
+  visible?: boolean;
+}) {
+  const px = size === 'tiny' ? 14 : 22;
+  const fontSize = size === 'tiny' ? 11 : 16;
+  if (!visible) {
+    return <span style={{ width: px, height: px, display: 'inline-block' }} />;
+  }
+  if (icon === 'none') {
+    return (
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: px, height: px,
+        background: 'rgba(0,0,0,0.10)', borderRadius: 3,
+        fontSize: fontSize, color: textColor, lineHeight: 1,
+      }}>·</span>
+    );
+  }
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      width: px, height: px,
+      fontSize: fontSize, lineHeight: 1,
+    }}>{iconGlyph[icon]}</span>
+  );
+}
+
+function frame(size: 'tile' | 'summary', selected?: boolean): CSSProperties {
+  if (size === 'tile') {
+    return {
+      width: 138,
+      borderRadius: 3,
+      border: `1px solid ${cardBorder}`,
+      outline: selected ? '3px solid #d4a017' : 'none',
+      outlineOffset: selected ? -3 : 0,
+      overflow: 'hidden',
+      background: '#fff',
+      fontFamily: '"Segoe UI", system-ui, sans-serif',
+      userSelect: 'none',
+      flexShrink: 0,
+    };
+  }
+  return summaryFrame(selected);
+}
+
+function summaryFrame(selected?: boolean): CSSProperties {
   return {
-    display: 'flex', flexDirection: 'column',
-    width: compact ? 110 : 130,
-    minHeight: compact ? 62 : 80,
-    padding: compact ? '4px 6px' : '6px 8px',
-    borderRadius: 6,
-    boxSizing: 'border-box',
-    fontFamily: 'system-ui, sans-serif',
-    boxShadow: '0 1px 0 rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.07)',
+    display: 'flex',
+    minWidth: 180,
+    borderRadius: 3,
+    border: `1px solid ${cardBorder}`,
+    outline: selected ? '2px solid #d4a017' : 'none',
+    outlineOffset: selected ? -2 : 0,
+    overflow: 'hidden',
+    background: '#fff',
+    fontFamily: '"Segoe UI", system-ui, sans-serif',
     userSelect: 'none',
+    flexShrink: 0,
   };
 }
