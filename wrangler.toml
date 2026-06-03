@@ -1,0 +1,19 @@
+# Cloudflare Pages config. The Pages Functions backend (functions/api/**) is
+# auto-discovered; this file declares the project name + build output.
+#
+# Deploy (canonical):
+#   npm run build
+#   npx wrangler pages deploy dist --project-name=innovation-ts
+#
+# Env vars (set in Cloudflare dashboard, Pages project → Settings →
+# Environment variables → Production):
+#   SUPABASE_URL
+#   SUPABASE_SERVICE_KEY  (service-role key; never exposed to the client)
+#   PUBLIC_ORIGIN         (optional; defaults to request's origin)
+#
+# See DEPLOY.md for the full first-deploy walkthrough.
+
+name = "innovation-ts"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-06-01"
+compatibility_flags = ["nodejs_compat"]
