@@ -3,9 +3,9 @@
 ## Backup discipline (load-bearing)
 
 Never leave a session with local-only state. Commit and push to the private
-remote before doing new work. **As of scaffolding, no remote exists yet** —
-the backup story is incomplete until `git init` + a private GitHub remote +
-an initial push are all in place. Tell the user if `origin` is missing.
+remote (`origin` = `github.com/johnchampaign/innovation-ts`, private) before
+doing new work. If `git status -sb` doesn't show `## main...origin/main` with
+no `ahead`, push before continuing.
 
 (See the Digital Boardgame Framework and Tyrants repos for the same rule —
 this project follows the identical discipline.)
