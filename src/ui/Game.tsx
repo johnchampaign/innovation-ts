@@ -4,17 +4,26 @@
 // the natural seam for Phase 4: swap useState for the framework's `useGame`
 // and the rest of the UI stays identical.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { innovationAdapter as A, initialBgioState, type BgioState } from '../adapter/innovationAdapter';
 import { cardById } from '../card-data';
 import { score, highestTopAge, topCard } from '../engine/mechanics';
 import type { Color, ChoiceResponse } from '../engine/types';
 import { PlayerBoard, Hand } from './Board';
 import { ChoicePrompt } from './Choice';
+import { pickAction } from '../ai/greedy';
 
-interface Props { numPlayers: number; }
+interface Props {
+  numPlayers: number;
+  /** Player ids that should be played by the greedy AI. When any of these
+   *  becomes the current actor (or owns a pending choice), the AI auto-picks
+   *  and applies an action after a short delay so the human can see what
+   *  changed. Empty set = pure hotseat (Phase-3 behaviour). */
+  aiSeats?: ReadonlySet<string>;
+}
 
-export function Game({ numPlayers }: Props) {
+export function Game({ numPlayers, aiSeats }: Props) {
+  const ai = aiSeats ?? new Set<string>();
   const [state, setState] = useState<BgioState>(() => initialBgioState(numPlayers));
   const [reseedNonce, setReseedNonce] = useState(0);
 
@@ -32,6 +41,24 @@ export function Game({ numPlayers }: Props) {
       console.error('apply error', action, e);
     }
   }, [actor, state]);
+
+  // AI auto-play. When it's an AI seat's turn (or they own the pending
+  // choice), pick an action via the greedy controller after a small delay
+  // so the human sees the previous state briefly.
+  useEffect(() => {
+    if (gameover) return;
+    if (actor === null || !ai.has(actor)) return;
+    const id = setTimeout(() => {
+      try {
+        const action = pickAction(state, actor);
+        const next = A.applyAction(state, action, actor);
+        setState(next);
+      } catch (e) {
+        console.error('AI apply error', e);
+      }
+    }, 400);
+    return () => clearTimeout(id);
+  }, [state, actor, ai, gameover]);
 
   const onDraw = () => apply({ kind: 'draw' });
   const onMeld = (handIndex: number) => apply({ kind: 'meld', handIndex });

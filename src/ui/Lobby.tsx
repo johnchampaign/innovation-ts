@@ -13,7 +13,7 @@ import { createGame, type CreateGameResult } from '../online/client';
 
 export function Lobby() {
   const [numPlayers, setNumPlayers] = useState(2);
-  const [mode, setMode] = useState<'menu' | 'creating' | 'hotseat' | 'invites'>('menu');
+  const [mode, setMode] = useState<'menu' | 'creating' | 'hotseat' | 'solo' | 'invites'>('menu');
   const [result, setResult] = useState<CreateGameResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,6 +31,14 @@ export function Lobby() {
 
   if (mode === 'hotseat') {
     return <HotseatGame numPlayers={numPlayers} />;
+  }
+
+  if (mode === 'solo') {
+    // Solo vs AI — you are player 0; seats 1..N-1 are the greedy AI.
+    const aiSeats = new Set<string>(
+      Array.from({ length: numPlayers - 1 }, (_, i) => String(i + 1)),
+    );
+    return <HotseatGame numPlayers={numPlayers} aiSeats={aiSeats} />;
   }
 
   if (mode === 'invites' && result) {
@@ -69,11 +77,19 @@ export function Lobby() {
       </section>
 
       <section style={{ borderTop: '1px solid #2c3046', paddingTop: 22 }}>
-        <h2 style={h2()}>Hotseat (single device)</h2>
-        <p style={muted()}>Both players share this tab. No server, no invites.</p>
-        <button onClick={() => setMode('hotseat')} style={secondaryButton()}>
-          Start hotseat ({numPlayers} players)
-        </button>
+        <h2 style={h2()}>Single device</h2>
+        <p style={muted()}>
+          <strong>Solo vs AI</strong> — you’re Player 0, the greedy AI fills the rest.
+          {' '}<strong>Hotseat</strong> — humans share this tab.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setMode('solo')} style={primaryButton()}>
+            Solo vs AI ({numPlayers - 1} opponent{numPlayers - 1 === 1 ? '' : 's'})
+          </button>
+          <button onClick={() => setMode('hotseat')} style={secondaryButton()}>
+            Hotseat ({numPlayers} players)
+          </button>
+        </div>
       </section>
     </div>
   );
