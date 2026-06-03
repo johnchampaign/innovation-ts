@@ -10,12 +10,12 @@ import type { Game, Ctx } from 'boardgame.io';
 import { INVALID_MOVE } from 'boardgame.io/core';
 import './engine/handlers'; // register dogma handlers (side-effect import)
 import { ALL_CARDS, cardById } from './card-data';
-import { getDogma } from './engine/registry';
+import { startDogma, resumeDogma } from './engine/dogma';
 import {
   achievementCount, highestTopAge, score, topCard,
 } from './engine/mechanics';
 import type {
-  InnovationState, PlayerData, Color, EffectContext, ChoiceResponse,
+  InnovationState, PlayerData, Color, ChoiceResponse,
 } from './engine/types';
 import { COLORS } from './engine/types';
 
@@ -43,7 +43,7 @@ function setup({ ctx, random }: { ctx: Ctx; random: SetupApi }): InnovationState
     availableSpecialAchievements: ['Monument', 'Empire', 'World', 'Wonder', 'Universe'],
     actionsRemaining: 1,
     pendingChoice: null,
-    pausedEffect: null,
+    dogmaRun: null,
     endByDraw: false,
     log: [],
   };
@@ -72,49 +72,36 @@ function setup({ ctx, random }: { ctx: Ctx; random: SetupApi }): InnovationState
 }
 
 // ---------------------------------------------------------------------------
-// Dogma pause/resume bridge
-// ---------------------------------------------------------------------------
-
-/** Run a card's dogma for the active player. If the handler pauses (sets a
- *  pending choice), persist the paused effect; otherwise it's complete.
- *  Returns true if the dogma completed (so the action can be spent). */
-function runDogma(g: InnovationState, cardId: number, activeId: string): boolean {
-  const handler = getDogma(cardById(cardId).title);
-  if (!handler) return true; // placeholder / unported card → no-op, action spent
-  const ctx: EffectContext = { response: undefined, handlerState: {}, pendingChoice: null };
-  handler(g, activeId, ctx);
-  if (ctx.pendingChoice) {
-    g.pendingChoice = ctx.pendingChoice;
-    g.pausedEffect = { cardId, targetId: activeId, handlerState: ctx.handlerState };
-    return false;
-  }
-  return true;
-}
-
-/** Resume a paused dogma with the player's response. Returns true if the dogma
- *  is now complete. */
-function resumeDogma(g: InnovationState, response: ChoiceResponse): boolean {
-  const pe = g.pausedEffect!;
-  const handler = getDogma(cardById(pe.cardId).title)!;
-  g.pendingChoice = null;
-  const ctx: EffectContext = { response, handlerState: pe.handlerState, pendingChoice: null };
-  handler(g, pe.targetId, ctx);
-  if (ctx.pendingChoice) {
-    g.pendingChoice = ctx.pendingChoice;
-    g.pausedEffect = { ...pe, handlerState: ctx.handlerState };
-    return false;
-  }
-  g.pausedEffect = null;
-  return true;
-}
-
-// ---------------------------------------------------------------------------
 // Moves
 // ---------------------------------------------------------------------------
 
-interface MoveApi { G: InnovationState; ctx: Ctx; events: { endTurn: () => void }; }
+/** Events surface we use. `setActivePlayers({ value: {...} })` puts the choice
+ *  owner into the `awaitingChoice` stage so non-current-player sharers can
+ *  resolve their own pause; `value: {}` clears (back to normal currentPlayer
+ *  control). See node_modules/boardgame.io ... SetActivePlayers (turn-order). */
+interface MoveEvents {
+  endTurn: () => void;
+  setActivePlayers: (arg: {
+    value?: Record<string, string>;
+    currentPlayer?: string;
+  }) => void;
+}
 
-function spendAction(G: InnovationState, events: { endTurn: () => void }): void {
+interface MoveApi { G: InnovationState; ctx: Ctx; events: MoveEvents; }
+
+/** Sync the bgio stage to the current pending choice. Called after every
+ *  dogma start/resume. If a choice is pending, put its owner in the
+ *  `awaitingChoice` stage; otherwise clear active players so the activator's
+ *  normal turn resumes. */
+function syncChoiceStage(G: InnovationState, events: MoveEvents): void {
+  if (G.pendingChoice) {
+    events.setActivePlayers({ value: { [G.pendingChoice.playerId]: 'awaitingChoice' } });
+  } else {
+    events.setActivePlayers({ value: {} });
+  }
+}
+
+function spendAction(G: InnovationState, events: MoveEvents): void {
   G.actionsRemaining -= 1;
   if (G.actionsRemaining <= 0 && !G.pendingChoice) events.endTurn();
 }
@@ -153,9 +140,12 @@ const moves = {
     const me = ctx.currentPlayer;
     const top = topCard(G.players[me], color);
     if (top === null) return INVALID_MOVE;
-    const done = runDogma(G, top, me);
-    if (done) spendAction(G, events);
-    // If paused, the action is spent later by resolveChoice completing it.
+    const done = startDogma(G, top, me);
+    if (done) {
+      spendAction(G, events);
+    } else {
+      syncChoiceStage(G, events); // route the pause to the choice owner
+    }
   },
 
   // Claim an age achievement (its own action).
@@ -171,15 +161,18 @@ const moves = {
     spendAction(G, events);
   },
 
-  // Answer the pending dogma choice.
-  resolveChoice({ G, ctx, events }: MoveApi, response: ChoiceResponse) {
-    if (!G.pendingChoice) return INVALID_MOVE;
-    if (G.pendingChoice.playerId !== ctx.currentPlayer) return INVALID_MOVE;
-    if (!isValidResponse(G, response)) return INVALID_MOVE;
-    const done = resumeDogma(G, response);
-    if (done) spendAction(G, events); // the dogma action now completes
-  },
 };
+
+/** Stage move: any player put into `awaitingChoice` (the current dogma choice
+ *  owner) answers the pending choice here. Lives in a stage so non-current
+ *  players (sharers, demand targets) can respond mid-turn. */
+function resolveChoiceMove({ G, events }: MoveApi, response: ChoiceResponse) {
+  if (!G.pendingChoice) return INVALID_MOVE;
+  if (!isValidResponse(G, response)) return INVALID_MOVE;
+  const done = resumeDogma(G, response);
+  syncChoiceStage(G, events); // re-pause with new owner, or clear if done
+  if (done) spendAction(G, events); // the dogma action now completes
+}
 
 /** Inline draw so the move can also flip endByDraw; mirrors mechanics.draw. */
 function drawInline(g: InnovationState, playerId: string, age: number): void {
@@ -270,6 +263,11 @@ export const InnovationGame: Game<InnovationState> = {
       // First turn of the game = 1 action; every other turn = 2 (the common
       // case; refine the 3–4p opening nuance later).
       G.actionsRemaining = ctx.turn === 1 ? 1 : 2;
+    },
+    stages: {
+      awaitingChoice: {
+        moves: { resolveChoice: resolveChoiceMove },
+      },
     },
   },
   endIf: endIf as unknown as Game<InnovationState>['endIf'],

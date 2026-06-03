@@ -50,7 +50,7 @@ registerDogma('Domestication', (g, target) => {
 registerDogma('Agriculture', (g, target, ctx) => {
   if (!ctx.handlerState.asked) {
     const hand = g.players[target].hand;
-    if (hand.length === 0) return;
+    if (hand.length === 0) return false; // no-op for shared-bonus accounting
     ctx.handlerState.asked = true;
     ctx.pendingChoice = {
       kind: 'select-hand-card',
@@ -62,21 +62,26 @@ registerDogma('Agriculture', (g, target, ctx) => {
     return;
   }
   const resp = ctx.response;
-  if (resp === null || resp === undefined) return; // declined
+  if (resp === null || resp === undefined) return false; // declined → no progress
   const cardId = resp as number;
   const returnedAge = cardById(cardId).age;
   returnFromHand(g, target, cardId);
   drawAndScore(g, target, returnedAge + 1);
+  return true;
 });
 
-// Pottery — "You may return up to three cards from your hand. If you do, draw
-// and score a card of value equal to the number of cards you returned." then a
-// separate effect: "Draw a 1."
+// Pottery — TWO effects on the card:
+//   level 0: "You may return up to three cards from your hand. If you
+//            returned any cards, draw and score a card of value equal to
+//            the number of cards you returned."
+//   level 1: "Draw a 1."
+// One title-keyed handler runs for every level; branch on `ctx.levelIndex`.
 registerDogma('Pottery', (g, target, ctx) => {
-  if (!ctx.handlerState.asked) {
-    ctx.handlerState.asked = true;
-    const hand = g.players[target].hand;
-    if (hand.length > 0) {
+  if (ctx.levelIndex === 0) {
+    if (!ctx.handlerState.asked) {
+      const hand = g.players[target].hand;
+      if (hand.length === 0) return false;
+      ctx.handlerState.asked = true;
       ctx.pendingChoice = {
         kind: 'select-hand-card-subset',
         prompt: 'Pottery: you may return up to three cards to draw and score that many.',
@@ -86,15 +91,17 @@ registerDogma('Pottery', (g, target, ctx) => {
         minCount: 0,
         maxCount: Math.min(3, hand.length),
       };
-      return; // wait for the subset answer; "Draw a 1" runs on resume below
+      return;
     }
-  } else {
     const resp: ChoiceResponse | undefined = ctx.response;
     if (Array.isArray(resp) && resp.length > 0) {
       for (const id of resp) returnFromHand(g, target, id);
       drawAndScore(g, target, resp.length);
+      return true;
     }
+    return false; // declined → no progress for shared-bonus accounting
   }
-  // Second effect, always runs: "Draw a 1."
+  // level 1: unconditional "Draw a 1."
   draw(g, target, 1);
+  return true;
 });

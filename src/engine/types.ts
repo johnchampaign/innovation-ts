@@ -85,15 +85,31 @@ export type ChoiceKind =
  *  `null` (declined). */
 export type ChoiceResponse = number | number[] | boolean | null;
 
-/** What an in-flight dogma needs to resume after a pause (the C# combination of
- *  `DogmaContext.PendingChoice` + `HandlerState`). Persisted in `G` across the
- *  move boundary so the `resolveChoice` move can re-enter the handler. */
-export interface PausedEffect {
+/** Live state of an in-flight dogma resolution — the C# `DogmaContext`, made
+ *  JSON-serializable so it can sit in `G` across move boundaries.
+ *
+ *  Set when a dogma starts; persists across pauses until every effect has run
+ *  against every target; nulled once the shared-bonus draw fires and the
+ *  resolution completes. */
+export interface DogmaRun {
   cardId: number;
-  /** Player the dogma is currently resolving for (active player for now;
-   *  becomes the share/demand target once those are implemented). */
-  targetId: string;
-  /** Handler scratch state — re-entrant step machine bookkeeping. */
+  activatingPlayerId: string;
+  featuredIcon: IconName;
+  /** Featured-icon count per player at activation time — frozen, NOT recomputed
+   *  mid-dogma even if a handler mutates someone's board (rulebook). */
+  frozenIconCounts: Record<string, number>;
+  /** Effect index (0-based) currently being resolved. */
+  currentLevel: number;
+  /** Ordered player ids the current level affects (sharers clockwise then
+   *  activator for non-demand; opponents with fewer featured icons for demand).
+   *  Computed once at the level boundary; empty between levels. */
+  currentTargets: string[];
+  currentTargetIndex: number;
+  /** True once a non-active player progressed a non-demand effect; triggers
+   *  the activator's bonus draw after all levels resolve. */
+  sharedBonus: boolean;
+  /** Re-entrant scratch state for the currently-executing handler — reset to
+   *  {} when advancing to the next target. */
   handlerState: Record<string, unknown>;
 }
 
@@ -108,7 +124,9 @@ export interface InnovationState {
   /** Actions left in the current turn (set on turn begin). */
   actionsRemaining: number;
   pendingChoice: PendingChoice | null;
-  pausedEffect: PausedEffect | null;
+  /** Live dogma resolution; non-null only while a dogma is in flight (paused
+   *  awaiting a choice or, transiently, mid-driver). */
+  dogmaRun: DogmaRun | null;
   /** Set when a player must draw above age 10 (deck exhaustion) — ends the
    *  game on the highest-score tiebreak. */
   endByDraw: boolean;
@@ -117,12 +135,19 @@ export interface InnovationState {
 
 /** Context handed to a dogma handler. Mirrors the C# `DogmaContext`: a handler
  *  may consume a prior choice response, request a new choice (which pauses the
- *  dogma), and stash scratch state. */
+ *  dogma), and stash scratch state.
+ *
+ *  Cards with multiple effects (Pottery, Code of Laws, …) reuse one
+ *  title-keyed handler for every effect; `levelIndex` lets the handler branch
+ *  on which effect row it is currently servicing. */
 export interface EffectContext {
+  /** 0-based index of the current effect row on the card. */
+  levelIndex: number;
   /** The response to the choice that caused the current resume, or undefined
    *  on the cold (first) entry. */
   response: ChoiceResponse | undefined;
-  /** Re-entrant scratch state (persisted across pauses). */
+  /** Re-entrant scratch state (persisted across pauses, reset between
+   *  levels and between targets). */
   handlerState: Record<string, unknown>;
   /** Set by a handler to pause and ask the player something. */
   pendingChoice: PendingChoice | null;
