@@ -90,13 +90,14 @@ export function OnlineGame({ gameId, token }: Props) {
         </aside>
 
         <main style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <YourBoard
-            G={G}
-            playerId={you ?? '0'}
-            label={`Your Board — Player ${you}`}
-            onActivateDogma={yourTurn && !inDogma ? onDogma : undefined}
-            dogmaColors={yourTurn && !inDogma ? dogmaColors : undefined}
-          />
+          <section style={panel()}>
+            <YourBoard
+              G={G}
+              playerId={you ?? '0'}
+              onActivateDogma={yourTurn && !inDogma ? onDogma : undefined}
+              dogmaColors={yourTurn && !inDogma ? dogmaColors : undefined}
+            />
+          </section>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <section style={panel()}>
               <SectionHeader text="Your Hand" extra={
