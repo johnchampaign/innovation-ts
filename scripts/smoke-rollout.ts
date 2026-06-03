@@ -9,12 +9,13 @@
 //   npm run smoke
 
 import { innovationAdapter as A, initialBgioState, type BgioState } from '../src/adapter/innovationAdapter';
-import { ALL_CARDS } from '../src/card-data';
+import { ALL_CARDS, cardById } from '../src/card-data';
+import { topCard } from '../src/engine/mechanics';
 import type { Color } from '../src/engine/types';
 
 function totalCardIds(state: BgioState): number {
   const G = state.G;
-  let n = 0;
+  let n = G.removedFromGame.length;
   for (let a = 1; a < G.decks.length; a++) n += G.decks[a].length;
   for (const p of Object.values(G.players)) {
     n += p.hand.length + p.scorePile.length;
@@ -39,8 +40,9 @@ const reasons: Record<string, number> = {};
 for (let game = 0; game < NUM_GAMES; game++) {
   let state = initialBgioState(2);
   const expected = totalCardIds(state);
-  // Sanity: the 9 reserved achievement tiles (ages 1–9) leave circulation.
-  if (game === 0 && expected !== ALL_CARDS.length - 9) {
+  // Conservation: every card stays in the system. removedFromGame holds the
+  // 9 reserved achievement tiles at start, plus anything Fission wipes.
+  if (game === 0 && expected !== ALL_CARDS.length) {
     throw new Error(`unexpected starting card count ${expected} (cards=${ALL_CARDS.length})`);
   }
 
@@ -51,10 +53,22 @@ for (let game = 0; game < NUM_GAMES; game++) {
     const legal = A.legalActions(state, actor);
     if (legal.length === 0) throw new Error(`game ${game}: no legal actions for ${actor} at turn ${state.ctx.turn}`);
     const pick = legal[Math.floor(rnd() * legal.length)];
+    // Capture which card a dogma is firing for, so failures pinpoint it.
+    let dogmaCard = '';
+    if (pick.kind === 'dogma') {
+      const top = topCard(state.G.players[actor], pick.color);
+      if (top !== null) dogmaCard = cardById(top).title;
+    }
     state = A.applyAction(state, pick, actor); // throws on legal/apply divergence
     const total = totalCardIds(state);
     if (total !== expected) {
-      throw new Error(`game ${game} step ${steps}: card conservation broken (${total} != ${expected}) after ${pick.kind}`);
+      let extra = '';
+      if (pick.kind === 'dogma') {
+        extra = ' (card="' + dogmaCard + '")';
+      } else if (pick.kind === 'resolveChoice') {
+        extra = ' (resolving dogma run: ' + JSON.stringify(state.G.dogmaRun) + ')';
+      }
+      throw new Error(`game ${game} step ${steps}: card conservation broken (${total} != ${expected}) after ${pick.kind}${extra}`);
     }
   }
 

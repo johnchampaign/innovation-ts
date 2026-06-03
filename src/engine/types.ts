@@ -180,6 +180,10 @@ export interface InnovationState {
    *  AI, Bioengineering, Globalization, Self Service (the "I just win" cards).
    *  Set via `winSolo(g, playerId, reason)`. */
   winnerOverride: { winners: string[]; reason: string } | null;
+  /** Cards removed from the game permanently — Fission's apocalypse path.
+   *  Lives here (rather than vanishing) so card conservation invariants
+   *  still hold. The 9 reserved achievement tiles ride here at setup too. */
+  removedFromGame: number[];
   log: string[];
 }
 

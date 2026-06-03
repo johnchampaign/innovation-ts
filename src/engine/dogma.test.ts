@@ -36,6 +36,7 @@ function freshGame(numPlayers: number): InnovationState {
     dogmaRun: null,
     endByDraw: false,
     winnerOverride: null,
+    removedFromGame: [],
     log: [],
   };
   for (const c of ALL_CARDS) g.decks[c.age].push(c.id);

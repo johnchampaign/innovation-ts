@@ -46,6 +46,7 @@ function setup({ ctx, random }: { ctx: Ctx; random: SetupApi }): InnovationState
     dogmaRun: null,
     endByDraw: false,
     winnerOverride: null,
+    removedFromGame: [],
     log: [],
   };
 
@@ -53,9 +54,10 @@ function setup({ ctx, random }: { ctx: Ctx; random: SetupApi }): InnovationState
   for (let a = 1; a <= 10; a++) g.decks[a] = random.Shuffle(g.decks[a]);
 
   // Reserve one achievement tile per age 1–9 (drop the top card; the age
-  // becomes claimable). C# GameSetup does the same.
+  // becomes claimable). C# GameSetup does the same. Route the dropped card
+  // to removedFromGame so card-conservation invariants hold.
   for (let a = 1; a <= 9; a++) {
-    if (g.decks[a].length > 0) g.decks[a].shift();
+    if (g.decks[a].length > 0) g.removedFromGame.push(g.decks[a].shift()!);
     g.availableAgeAchievements.push(a);
   }
 
