@@ -38,7 +38,7 @@ time, ~30 seconds every subsequent time.
    Run it. You should see four `CREATE TABLE` statements succeed.
 5. **Project settings → API** — copy two values for later:
    - **Project URL** (e.g. `https://abcd.supabase.co`) → `SUPABASE_URL`
-   - **`service_role` key** (NOT the anon key) → `SUPABASE_SERVICE_KEY`
+   - **`service_role` key** (NOT the anon key) → `SUPABASE_SERVICE_ROLE_KEY`
 
    Why service_role: the GameServer needs write access from the
    server-side; tokens stay server-side only.
@@ -68,10 +68,10 @@ Settings → **Environment variables** → **Production**:
 | Name                  | Value                                          |
 | --------------------- | ---------------------------------------------- |
 | `SUPABASE_URL`        | from step 1.5                                  |
-| `SUPABASE_SERVICE_KEY`| from step 1.5                                  |
+| `SUPABASE_SERVICE_ROLE_KEY`| from step 1.5                                  |
 | `PUBLIC_ORIGIN`       | (optional) `https://innovation-ts.pages.dev`   |
 
-Encrypted? Yes for `SUPABASE_SERVICE_KEY`. The other two are non-secret.
+Encrypted? Yes for `SUPABASE_SERVICE_ROLE_KEY`. The other two are non-secret.
 
 ### 4. Check the Production branch
 
@@ -119,7 +119,7 @@ npm run dev
 # In another — wrangler pages dev wrapping the Functions backend
 npx wrangler pages dev dist --port 8788 \
   --binding SUPABASE_URL=https://your-project.supabase.co \
-  --binding SUPABASE_SERVICE_KEY=eyJ...
+  --binding SUPABASE_SERVICE_ROLE_KEY=eyJ...
 ```
 
 Or, simpler for a quick check, just point Vite's `/api` proxy at a deployed

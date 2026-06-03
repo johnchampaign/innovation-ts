@@ -20,14 +20,17 @@ import { innovationAdapter, initialBgioState, type BgioState, type InnovationAct
 
 interface Env {
   SUPABASE_URL: string;
-  SUPABASE_SERVICE_KEY: string;
+  /** Service-role key. Named to match the framework convention used across
+   *  the other games (tyrants-online, star-wars-rebellion) so one Supabase
+   *  project's secret can be shared. */
+  SUPABASE_SERVICE_ROLE_KEY: string;
   PUBLIC_ORIGIN?: string;
 }
 
 interface RouteCtx { request: Request; env: Env; }
 
 function server(env: Env, origin: string) {
-  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY, {
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { persistSession: false },
   });
   return new GameServer<BgioState, InnovationAction, PlayerId>({
