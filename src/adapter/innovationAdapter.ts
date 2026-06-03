@@ -93,14 +93,23 @@ function enumerateChoiceResponses(G: InnovationState): InnovationAction[] {
       out.push({ kind: 'resolveChoice', response: false });
       break;
     case 'select-hand-card-subset': {
-      // Display-grade (not the full power set): decline (null, above), each
-      // singleton, and the maxCount-sized prefix. Enough for the random AI and
-      // the UI's common picks; refine if a card needs exact subset control.
+      // Display-grade enumeration (not the full power set): one prefix per
+      // legal size in [min..max], plus the "decline" if min==0. Crucially
+      // every emitted response respects min/max — earlier versions emitted
+      // singletons even when min>1 (e.g. Tools min=3), causing legalActions
+      // to lie to the random rollout. Enough for the random AI; the UI
+      // builds its own picker, and we can broaden if a card needs more.
       const min = pc.minCount ?? 0;
       const max = pc.maxCount ?? pc.options.length;
       if (min === 0) out.push({ kind: 'resolveChoice', response: [] });
-      for (const o of pc.options) out.push({ kind: 'resolveChoice', response: [o] });
-      if (max >= 1) out.push({ kind: 'resolveChoice', response: pc.options.slice(0, max) });
+      const startSize = Math.max(min, 1);
+      for (let sz = startSize; sz <= max; sz++) {
+        out.push({ kind: 'resolveChoice', response: pc.options.slice(0, sz) });
+      }
+      // Singletons (only when min ≤ 1).
+      if (min <= 1 && max >= 1) {
+        for (const o of pc.options) out.push({ kind: 'resolveChoice', response: [o] });
+      }
       break;
     }
   }

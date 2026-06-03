@@ -56,6 +56,7 @@ export function startDogma(
     currentTargetIndex: 0,
     sharedBonus: false,
     handlerState: {},
+    demandSuccessful: false,
   };
   g.dogmaRun = run;
   return drive(g, undefined);

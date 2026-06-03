@@ -12,6 +12,13 @@ import { ALL_CARDS, cardById, cardByTitle } from '../../card-data';
 import type { InnovationState, PlayerData } from '../types';
 import { COLORS } from '../types';
 
+function takeFromDeck(g: InnovationState, cardId: number): number {
+  const age = cardById(cardId).age;
+  const i = g.decks[age].indexOf(cardId);
+  if (i >= 0) g.decks[age].splice(i, 1);
+  return cardId;
+}
+
 function newPlayer(): PlayerData {
   const piles = {} as PlayerData['piles'];
   for (const c of COLORS) piles[c] = { cards: [], splay: 'none' };
@@ -143,15 +150,6 @@ describe('Agriculture', () => {
 });
 
 describe('Archery (demand)', () => {
-  /** Remove a card from its age deck (use when seeding hand/board directly so
-   *  the same id can't be re-drawn). Mirrors what the real GameSetup does. */
-  function takeFromDeck(g: InnovationState, cardId: number): number {
-    const age = cardById(cardId).age;
-    const i = g.decks[age].indexOf(cardId);
-    if (i >= 0) g.decks[age].splice(i, 1);
-    return cardId;
-  }
-
   // Build a 2-player game where the activator has a castle advantage so the
   // demand actually hits player 1.
   function archeryGame(p1HandTitles: string[]): InnovationState {
@@ -196,13 +194,6 @@ describe('Archery (demand)', () => {
     expect(g.players['1'].hand).toContain(agri); // untouched
   });
 
-  function takeFromDeck(g: InnovationState, cardId: number): number {
-    const age = cardById(cardId).age;
-    const i = g.decks[age].indexOf(cardId);
-    if (i >= 0) g.decks[age].splice(i, 1);
-    return cardId;
-  }
-
   it('demand does NOT trigger the shared-bonus draw', () => {
     const g = archeryGame(['Agriculture']);
     const handBefore = g.players['0'].hand.length;
@@ -210,6 +201,276 @@ describe('Archery (demand)', () => {
     resumeDogma(g, g.pendingChoice!.options[0]);
     // Activator gained exactly the transferred card — no extra share-bonus draw.
     expect(g.players['0'].hand.length).toBe(handBefore + 1);
+  });
+});
+
+describe('City States (demand)', () => {
+  // City States needs ≥4 castles on the target + a top card with castle.
+  // Stack four Masonry on yellow (each: 3 castles, total 12 → easily ≥4) and
+  // a top-castle card. Activator needs MORE crowns (featured) than target.
+  function setup(): InnovationState {
+    const g = freshGame(2);
+    // Activator: City States itself on purple gives 2 crowns; that beats
+    // a target with no crowns.
+    g.players['0'].piles.purple.cards = [takeFromDeck(g, cardByTitle('City States').id)];
+    // Target: 4 castle-bearing cards on yellow pile (top has castle).
+    const castleCards = ['Masonry', 'Domestication', 'Metalworking', 'Mysticism']
+      .map((t) => takeFromDeck(g, cardByTitle(t).id));
+    g.players['1'].piles.yellow.cards = [castleCards[0]];
+    g.players['1'].piles.red.cards = [castleCards[1]];
+    // The other two on different colors so each is a top with castle.
+    g.players['1'].piles.green.cards = [];
+    return g;
+  }
+
+  it('pauses on the demanded player to pick a top-castle color', () => {
+    const g = setup();
+    const done = startDogma(g, cardByTitle('City States').id, '0');
+    expect(done).toBe(false);
+    expect(g.pendingChoice?.kind).toBe('select-board-color');
+    expect(g.pendingChoice?.playerId).toBe('1');
+  });
+
+  it("on pick: top card moves to activator's matching pile, target draws a 1", () => {
+    const g = setup();
+    startDogma(g, cardByTitle('City States').id, '0');
+    const colorIdx = g.pendingChoice!.options[0];
+    const color = COLORS[colorIdx];
+    const movedCard = g.players['1'].piles[color].cards[0];
+    const targetHandBefore = g.players['1'].hand.length;
+    resumeDogma(g, colorIdx);
+    expect(g.players['0'].piles[color].cards[0]).toBe(movedCard);
+    expect(g.players['1'].piles[color].cards.length).toBe(0);
+    expect(g.players['1'].hand.length).toBe(targetHandBefore + 1); // draw a 1
+  });
+
+  it('skips target with fewer than 4 castles', () => {
+    const g = freshGame(2);
+    g.players['0'].piles.purple.cards = [takeFromDeck(g, cardByTitle('City States').id)];
+    // Target: only 2 castles via one Masonry → below 4 threshold.
+    g.players['1'].piles.yellow.cards = [takeFromDeck(g, cardByTitle('Masonry').id)];
+    const done = startDogma(g, cardByTitle('City States').id, '0');
+    expect(done).toBe(true);
+    expect(g.pendingChoice).toBeNull();
+  });
+});
+
+describe('Oars (demand + conditional share)', () => {
+  // Activator: castle advantage. Target: a crown-bearing hand card.
+  function setup(targetHandTitles: string[]): InnovationState {
+    const g = freshGame(2);
+    // Domestication on yellow → 2 castles vs target's 0.
+    g.players['0'].piles.yellow.cards = [takeFromDeck(g, cardByTitle('Domestication').id)];
+    g.players['1'].hand = targetHandTitles.map((t) => takeFromDeck(g, cardByTitle(t).id));
+    return g;
+  }
+
+  it("transferred crown card lands in activator's score pile; target draws a 1", () => {
+    // Sailing has a Crown icon.
+    const g = setup(['Sailing']);
+    startDogma(g, cardByTitle('Oars').id, '0');
+    expect(g.pendingChoice?.kind).toBe('select-hand-card');
+    const card = g.pendingChoice!.options[0];
+    const targetHandBefore = g.players['1'].hand.length;
+    resumeDogma(g, card);
+    expect(g.players['0'].scorePile).toContain(card);
+    expect(g.players['1'].hand).not.toContain(card);
+    // Net: target lost 1, drew 1 → same size.
+    expect(g.players['1'].hand.length).toBe(targetHandBefore);
+  });
+
+  it('level-1 draw fires for activator when nobody transferred (1p — no sharers)', () => {
+    // 1 player → no demand targets at level 0, no sharers at level 1 either.
+    // Activator-only at level 1: demandSuccessful=false → draw a 1. Exactly one
+    // card lands in hand, no shared-bonus draw piling on.
+    const g = freshGame(1);
+    const activatorHandBefore = g.players['0'].hand.length;
+    startDogma(g, cardByTitle('Oars').id, '0');
+    expect(g.players['0'].hand.length).toBe(activatorHandBefore + 1);
+  });
+
+  it('level-1 draw is skipped when the demand fired', () => {
+    const g = setup(['Sailing']);
+    const activatorHandBefore = g.players['0'].hand.length;
+    startDogma(g, cardByTitle('Oars').id, '0');
+    resumeDogma(g, g.pendingChoice!.options[0]);
+    // Activator gained the transferred Sailing in their SCORE pile, not hand.
+    // No level-1 draw → hand unchanged.
+    expect(g.players['0'].hand.length).toBe(activatorHandBefore);
+  });
+});
+
+describe('Metalworking', () => {
+  it('keeps drawing castle-bearing 1s into the score pile until a non-castle 1', () => {
+    const g = freshGame();
+    // Empty age-1 deck and re-seed in known order: 2 castle-bearing then a
+    // non-castle stops the loop. Masonry, Domestication (castle), Agriculture (no castle).
+    g.decks[1] = [
+      cardByTitle('Masonry').id,
+      cardByTitle('Domestication').id,
+      cardByTitle('Agriculture').id,
+    ];
+    startDogma(g, cardByTitle('Metalworking').id, '0');
+    expect(g.players['0'].scorePile).toEqual([
+      cardByTitle('Masonry').id, cardByTitle('Domestication').id,
+    ]);
+    expect(g.players['0'].hand).toEqual([cardByTitle('Agriculture').id]);
+  });
+});
+
+describe('Mysticism', () => {
+  it('match-color draw melds and triggers a second draw', () => {
+    const g = freshGame();
+    // Plant a yellow card on the board so the drawn yellow card melds.
+    g.players['0'].piles.yellow.cards = [takeFromDeck(g, cardByTitle('Domestication').id)];
+    // Force first draw to be a yellow age-1 (Agriculture).
+    g.decks[1] = [takeFromDeck(g, cardByTitle('Agriculture').id), ...g.decks[1]];
+    const secondExpected = g.decks[1][1];
+    startDogma(g, cardByTitle('Mysticism').id, '0');
+    // Agriculture melded on yellow (now top); second draw landed in hand.
+    expect(g.players['0'].piles.yellow.cards[0]).toBe(cardByTitle('Agriculture').id);
+    expect(g.players['0'].hand).toContain(secondExpected);
+  });
+
+  it('non-match draw stays in hand, no second draw', () => {
+    const g = freshGame();
+    // Empty board → no color matches → drawn card stays in hand.
+    const drewExpected = g.decks[1][0];
+    startDogma(g, cardByTitle('Mysticism').id, '0');
+    expect(g.players['0'].hand).toContain(drewExpected);
+    // Exactly one draw — second deck index should still be there.
+    expect(g.players['0'].hand.length).toBe(1);
+  });
+});
+
+describe('Clothing', () => {
+  it('level 0: pauses on a meld pick of a different-color hand card', () => {
+    const g = freshGame();
+    // Hand: a yellow card; board: empty → eligible (color pile yellow empty).
+    g.players['0'].hand = [takeFromDeck(g, cardByTitle('Agriculture').id)];
+    const done = startDogma(g, cardByTitle('Clothing').id, '0');
+    expect(done).toBe(false);
+    expect(g.pendingChoice?.kind).toBe('select-hand-card');
+    expect(g.pendingChoice?.optional).toBe(false);
+  });
+
+  it('level 1: scores one 1 per color unique to this player', () => {
+    const g = freshGame(2);
+    // Target (p0) has yellow and red; opponent (p1) has red.
+    // → Yellow is unique to p0 → one draw+score. Red shared → no score.
+    g.players['0'].piles.yellow.cards = [takeFromDeck(g, cardByTitle('Agriculture').id)];
+    g.players['0'].piles.red.cards = [takeFromDeck(g, cardByTitle('Archery').id)];
+    g.players['1'].piles.red.cards = [takeFromDeck(g, cardByTitle('Metalworking').id)];
+    // Force p0's hand to have no Clothing-eligible meld (red & yellow piles
+    // non-empty → no different-color picks needed). Level 0 will no-op.
+    g.players['0'].hand = []; // no level-0 work
+    const scoreBefore = g.players['0'].scorePile.length;
+    startDogma(g, cardByTitle('Clothing').id, '0');
+    expect(g.players['0'].scorePile.length).toBe(scoreBefore + 1);
+  });
+});
+
+describe('Code of Laws', () => {
+  it('tuck + splay-left flow: two pauses, then splays the tucked color', () => {
+    const g = freshGame();
+    // Board: two yellow cards so splay-left has effect.
+    g.players['0'].piles.yellow.cards = [
+      takeFromDeck(g, cardByTitle('Agriculture').id),
+      takeFromDeck(g, cardByTitle('Domestication').id),
+    ];
+    // Hand: a yellow card to tuck.
+    g.players['0'].hand = [takeFromDeck(g, cardByTitle('Masonry').id)];
+    const tuckCard = g.players['0'].hand[0];
+
+    // Pause 1: tuck pick.
+    expect(startDogma(g, cardByTitle('Code of Laws').id, '0')).toBe(false);
+    expect(g.pendingChoice?.kind).toBe('select-hand-card');
+    expect(g.pendingChoice?.optional).toBe(true);
+
+    // Pick: tuck the card. Pause 2: yes/no splay.
+    expect(resumeDogma(g, tuckCard)).toBe(false);
+    expect(g.pendingChoice?.kind).toBe('yes-no');
+
+    // Yes → splay left.
+    expect(resumeDogma(g, true)).toBe(true);
+    expect(g.players['0'].piles.yellow.splay).toBe('left');
+    // Tucked card is at the BOTTOM.
+    expect(g.players['0'].piles.yellow.cards.at(-1)).toBe(tuckCard);
+  });
+
+  it('declining the tuck is a no-op', () => {
+    const g = freshGame();
+    g.players['0'].piles.yellow.cards = [takeFromDeck(g, cardByTitle('Agriculture').id)];
+    g.players['0'].hand = [takeFromDeck(g, cardByTitle('Masonry').id)];
+    startDogma(g, cardByTitle('Code of Laws').id, '0');
+    const done = resumeDogma(g, null);
+    expect(done).toBe(true);
+    expect(g.players['0'].hand).toHaveLength(1); // not tucked
+  });
+});
+
+describe('Masonry', () => {
+  it('melding two castle-bearing cards puts them onto their color piles', () => {
+    const g = freshGame();
+    const a = takeFromDeck(g, cardByTitle('Domestication').id); // yellow, castle
+    const b = takeFromDeck(g, cardByTitle('Archery').id);       // red, castle
+    g.players['0'].hand = [a, b, takeFromDeck(g, cardByTitle('Agriculture').id)];
+    startDogma(g, cardByTitle('Masonry').id, '0');
+    // Only castle-bearing cards are eligible → 2 options.
+    expect(g.pendingChoice?.options.length).toBe(2);
+    const done = resumeDogma(g, [a, b]);
+    expect(done).toBe(true);
+    expect(g.players['0'].piles.yellow.cards).toContain(a);
+    expect(g.players['0'].piles.red.cards).toContain(b);
+  });
+
+  it('declining (empty subset) is a no-op', () => {
+    const g = freshGame();
+    g.players['0'].hand = [takeFromDeck(g, cardByTitle('Domestication').id)];
+    startDogma(g, cardByTitle('Masonry').id, '0');
+    const done = resumeDogma(g, []);
+    expect(done).toBe(true);
+    expect(g.players['0'].hand).toHaveLength(1); // untouched
+  });
+});
+
+describe('Tools', () => {
+  it('level 0: return-three, draw-and-meld a 3', () => {
+    const g = freshGame();
+    const hand = [
+      takeFromDeck(g, cardByTitle('Agriculture').id),
+      takeFromDeck(g, cardByTitle('Domestication').id),
+      takeFromDeck(g, cardByTitle('Masonry').id),
+    ];
+    g.players['0'].hand = [...hand];
+    const meldExpected = g.decks[3][0];
+    const meldColor = cardById(meldExpected).color;
+    startDogma(g, cardByTitle('Tools').id, '0');
+    expect(g.pendingChoice?.minCount).toBe(3);
+    expect(g.pendingChoice?.maxCount).toBe(3);
+    resumeDogma(g, hand);
+    expect(g.players['0'].piles[meldColor].cards[0]).toBe(meldExpected);
+    for (const id of hand) expect(g.players['0'].hand).not.toContain(id);
+  });
+
+  it('declining level 0 (null) skips and level 1 still runs', () => {
+    const g = freshGame();
+    // Three age-1 in hand for level-0 pause; one age-3 for level-1 pause.
+    const age3 = takeFromDeck(g, ALL_CARDS.find((c) => c.age === 3)!.id);
+    g.players['0'].hand = [
+      takeFromDeck(g, cardByTitle('Agriculture').id),
+      takeFromDeck(g, cardByTitle('Domestication').id),
+      takeFromDeck(g, cardByTitle('Masonry').id),
+      age3,
+    ];
+    expect(startDogma(g, cardByTitle('Tools').id, '0')).toBe(false);
+    // Decline level 0.
+    expect(resumeDogma(g, null)).toBe(false);
+    // Level 1 should now be paused for the age-3 return choice.
+    expect(g.pendingChoice?.kind).toBe('select-hand-card');
+    expect(g.pendingChoice?.options).toContain(age3);
+    // Decline level 1 too.
+    expect(resumeDogma(g, null)).toBe(true);
   });
 });
 

@@ -111,6 +111,12 @@ export interface DogmaRun {
   /** Re-entrant scratch state for the currently-executing handler — reset to
    *  {} when advancing to the next target. */
   handlerState: Record<string, unknown>;
+  /** Set by a demand-effect handler when its transfer/steal actually happened
+   *  (the C# `DogmaContext.DemandSuccessful`, VB6 `demand_met`). Read by
+   *  later effects of the same dogma that change behaviour based on whether
+   *  the demand fired — currently just Oars's second effect. Persists for
+   *  the lifetime of the dogma, never reset between levels. */
+  demandSuccessful: boolean;
 }
 
 /** Root game state = boardgame.io's `G`. */

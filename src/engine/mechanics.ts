@@ -129,6 +129,39 @@ export function transferHandToHand(
   g.players[toId].hand.push(cardId);
 }
 
+/** Transfer a hand card to another player's score pile. Used by Oars. */
+export function transferHandToScore(
+  g: InnovationState,
+  fromId: string,
+  toId: string,
+  cardId: number,
+): void {
+  const from = g.players[fromId];
+  const i = from.hand.indexOf(cardId);
+  if (i < 0) throw new Error(`transferHandToScore: card ${cardId} not in ${fromId}'s hand`);
+  from.hand.splice(i, 1);
+  g.players[toId].scorePile.push(cardId);
+}
+
+/** Transfer the top card of a color pile from one player to the top of the
+ *  same color pile on another player's board. Used by City States. Returns
+ *  true if a card moved (false if the source pile was empty). */
+export function transferTopCardToPile(
+  g: InnovationState,
+  fromId: string,
+  toId: string,
+  color: Color,
+): boolean {
+  const src = g.players[fromId].piles[color];
+  if (src.cards.length === 0) return false;
+  const top = src.cards.shift()!;
+  // The transferred pile loses its splay when emptied to a single card —
+  // unsplay if drop below 2 (mirrors C#: pile of <2 has no splay).
+  if (src.cards.length < 2) src.splay = 'none';
+  g.players[toId].piles[color].cards.unshift(top);
+  return true;
+}
+
 /** Apply a splay to a color pile. A pile of <2 cards can't be splayed; a splay
  *  matching the current direction is a no-op. */
 export function splay(g: InnovationState, playerId: string, color: Color, dir: Splay): boolean {
