@@ -12,9 +12,9 @@
 import { registerDogma } from '../registry';
 import { cardById } from '../../card-data';
 import {
-  draw, drawAndMeld, drawAndScore, meldFromHand, returnFromHand, scoreFromHand,
-  splay, transferHandToHand, transferHandToScore, transferTopCardToPile,
-  tuckFromHand,
+  claimSpecialAchievement, draw, drawAndMeld, drawAndScore, meldFromHand,
+  returnFromHand, scoreFromHand, splay, transferHandToHand, transferHandToScore,
+  transferTopCardToPile, tuckFromHand,
 } from '../mechanics';
 import { countIcons } from '../icons';
 import { COLORS } from '../types';
@@ -325,7 +325,7 @@ registerDogma('Masonry', (g, target, ctx) => {
     meldFromHand(g, target, id);
     if (g.endByDraw) return true;
   }
-  // TODO(phase-2.5): if resp.length >= 4, claim Monument special achievement.
+  if (resp.length >= 4) claimSpecialAchievement(g, target, 'Monument');
   return true;
 });
 

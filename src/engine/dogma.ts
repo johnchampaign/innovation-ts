@@ -57,6 +57,9 @@ export function startDogma(
     sharedBonus: false,
     handlerState: {},
     demandSuccessful: false,
+    nestedFrames: [],
+    fissionWiped: false,
+    pausedInNested: false,
   };
   g.dogmaRun = run;
   return drive(g, undefined);
@@ -76,6 +79,24 @@ function drive(g: InnovationState, response: ChoiceResponse | undefined): boolea
   const run = g.dogmaRun!;
   const def = cardById(run.cardId);
   const handler = getDogma(def.title); // undefined → placeholder no-op
+
+  // If the most recent pause was inside a nested frame, route the response
+  // back into the nested drainer first. The main handler for the current
+  // target already completed (and its sharedBonus was accounted for) before
+  // the nested pause, so on successful drain we advance past this target
+  // before re-entering the main loop.
+  if (run.pausedInNested) {
+    run.pausedInNested = false;
+    if (!drainNestedFrames(g, response)) return false;
+    response = undefined;
+    if (g.winnerOverride || g.endByDraw) {
+      g.dogmaRun = null;
+      return true;
+    }
+    // Past-target bookkeeping (sharedBonus already credited pre-drain).
+    run.currentTargetIndex++;
+    run.handlerState = {};
+  }
 
   while (run.currentLevel < def.effects.length) {
     const effect = def.effects[run.currentLevel];
@@ -114,12 +135,23 @@ function drive(g: InnovationState, response: ChoiceResponse | undefined): boolea
       }
       // (handler === undefined → placeholder card: progressed stays false)
 
+      // Credit sharedBonus BEFORE draining nested frames so that if the
+      // drain pauses, the resume path doesn't need to redo this step.
       if (
         progressed
         && !effect.isDemand
         && targetId !== run.activatingPlayerId
       ) {
         run.sharedBonus = true;
+      }
+
+      // Drain any "execute card X for self only" frames queued by the
+      // handler before advancing past this target.
+      if (!drainNestedFrames(g, undefined)) return false;
+
+      if (g.winnerOverride) {
+        g.dogmaRun = null;
+        return true;
       }
 
       // Advance to next target with a fresh handler scratch slot.
@@ -138,12 +170,82 @@ function drive(g: InnovationState, response: ChoiceResponse | undefined): boolea
   }
 
   // All levels finished. Shared-bonus draw fires once per dogma.
-  if (run.sharedBonus && !g.endByDraw) {
+  if (run.sharedBonus && !g.endByDraw && !g.winnerOverride) {
     const activator = g.players[run.activatingPlayerId];
     draw(g, run.activatingPlayerId, Math.max(1, highestTopAge(activator)));
   }
   g.dogmaRun = null;
   return true;
+}
+
+/** Drain the queued "execute card X for player Y, non-demand only" frames
+ *  (Robotics, Self Service, Computers eff2, Software eff2, Satellites eff3).
+ *  Mirrors C# `DogmaEngine.RunNestedFrames`. Each frame runs that card's
+ *  non-demand effects against ONE player only (no sharing/demand), with its
+ *  own handler scratch state. Returns false (and sets `pausedInNested`) if
+ *  the current frame's handler paused; true if every frame ran to completion.
+ *  `resumeResponse` (if non-undefined) goes to the top frame's handler — the
+ *  driver passes it through on the first iteration after a paused resume. */
+function drainNestedFrames(
+  g: InnovationState,
+  resumeResponse: ChoiceResponse | undefined,
+): boolean {
+  const run = g.dogmaRun!;
+  let response = resumeResponse;
+  while (run.nestedFrames.length > 0) {
+    const frame = run.nestedFrames[run.nestedFrames.length - 1];
+    const def = cardById(frame.cardId);
+    const handler = getDogma(def.title);
+    while (frame.effectIndex < def.effects.length) {
+      const effect = def.effects[frame.effectIndex];
+      // Self-only execution: skip demand effects entirely.
+      if (effect.isDemand) { frame.effectIndex++; continue; }
+
+      if (handler) {
+        const ctx: EffectContext = {
+          levelIndex: frame.effectIndex,
+          response,
+          handlerState: frame.handlerState,
+          pendingChoice: null,
+        };
+        handler(g, frame.targetPlayerId, ctx);
+        frame.handlerState = ctx.handlerState;
+        response = undefined;
+        if (ctx.pendingChoice) {
+          g.pendingChoice = ctx.pendingChoice;
+          run.pausedInNested = true;
+          return false;
+        }
+      }
+
+      if (g.winnerOverride || g.endByDraw) {
+        run.nestedFrames.length = 0;
+        return true;
+      }
+
+      frame.effectIndex++;
+      frame.handlerState = {};
+    }
+    run.nestedFrames.pop();
+  }
+  return true;
+}
+
+/** Queue a nested "execute card X's non-demand effects for player Y only"
+ *  frame (Robotics, Self Service, Computers eff2, Software eff2, Satellites
+ *  eff3). The driver drains the stack after the calling handler returns. */
+export function executeSelfOnly(
+  g: InnovationState,
+  cardId: number,
+  targetPlayerId: string,
+): void {
+  if (!g.dogmaRun) throw new Error('executeSelfOnly: no active dogma');
+  g.dogmaRun.nestedFrames.push({
+    cardId,
+    targetPlayerId,
+    effectIndex: 0,
+    handlerState: {},
+  });
 }
 
 /** Player ids the current effect runs against, in turn order. Exported for

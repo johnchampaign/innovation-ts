@@ -85,13 +85,25 @@ function enumerateChoiceResponses(G: InnovationState): InnovationAction[] {
   if (pc.optional) out.push({ kind: 'resolveChoice', response: null });
   switch (pc.kind) {
     case 'select-hand-card':
+    case 'select-score-card':
     case 'select-board-color':
+    case 'select-value':
       for (const o of pc.options) out.push({ kind: 'resolveChoice', response: o });
       break;
     case 'yes-no':
       out.push({ kind: 'resolveChoice', response: true });
       out.push({ kind: 'resolveChoice', response: false });
       break;
+    case 'select-card-order':
+      // Display-grade: offer the identity permutation, and (if length > 1)
+      // the reversed permutation. Enough for the random rollout and exposes
+      // both endpoints of the order space; the UI builds its own picker.
+      out.push({ kind: 'resolveChoice', response: [...pc.options] });
+      if (pc.options.length > 1) {
+        out.push({ kind: 'resolveChoice', response: [...pc.options].reverse() });
+      }
+      break;
+    case 'select-score-card-subset':
     case 'select-hand-card-subset': {
       // Display-grade enumeration (not the full power set): one prefix per
       // legal size in [min..max], plus the "decline" if min==0. Crucially

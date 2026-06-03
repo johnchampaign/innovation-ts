@@ -45,6 +45,7 @@ function setup({ ctx, random }: { ctx: Ctx; random: SetupApi }): InnovationState
     pendingChoice: null,
     dogmaRun: null,
     endByDraw: false,
+    winnerOverride: null,
     log: [],
   };
 
@@ -193,25 +194,47 @@ function isValidResponse(G: InnovationState, response: ChoiceResponse): boolean 
   if (response === null) return pc.optional;
   switch (pc.kind) {
     case 'select-hand-card':
+    case 'select-score-card':
     case 'select-board-color':
+    case 'select-value':
       return typeof response === 'number' && pc.options.includes(response);
     case 'yes-no':
       return typeof response === 'boolean';
-    case 'select-hand-card-subset': {
-      if (!Array.isArray(response)) return false;
-      const min = pc.minCount ?? 0;
-      const max = pc.maxCount ?? pc.options.length;
-      if (response.length < min || response.length > max) return false;
-      const seen = new Set<number>();
-      for (const id of response) {
-        if (!pc.options.includes(id) || seen.has(id)) return false;
-        seen.add(id);
-      }
-      return true;
-    }
+    case 'select-hand-card-subset':
+    case 'select-score-card-subset':
+      return isValidSubset(pc, response);
+    case 'select-card-order':
+      return isValidOrder(pc, response);
     default:
       return false;
   }
+}
+
+function isValidSubset(pc: NonNullable<InnovationState['pendingChoice']>, response: ChoiceResponse): boolean {
+  if (!Array.isArray(response)) return false;
+  const min = pc.minCount ?? 0;
+  const max = pc.maxCount ?? pc.options.length;
+  if (response.length < min || response.length > max) return false;
+  const seen = new Set<number>();
+  for (const id of response) {
+    if (!pc.options.includes(id) || seen.has(id)) return false;
+    seen.add(id);
+  }
+  return true;
+}
+
+/** Permutation check: response must be the same multiset as options. */
+function isValidOrder(pc: NonNullable<InnovationState['pendingChoice']>, response: ChoiceResponse): boolean {
+  if (!Array.isArray(response)) return false;
+  if (response.length !== pc.options.length) return false;
+  const remaining = new Map<number, number>();
+  for (const id of pc.options) remaining.set(id, (remaining.get(id) ?? 0) + 1);
+  for (const id of response) {
+    const c = remaining.get(id);
+    if (!c) return false;
+    remaining.set(id, c - 1);
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +243,9 @@ function isValidResponse(G: InnovationState, response: ChoiceResponse): boolean 
 
 export interface InnovationGameOver {
   winners: string[];
-  reason: 'achievements' | 'draw-exhaustion';
+  /** `achievements` / `draw-exhaustion` are the routine ends; solo-win cards
+   *  set their own reason string (e.g. `empiricism`, `collaboration`). */
+  reason: 'achievements' | 'draw-exhaustion' | string;
 }
 
 function requiredAchievements(numPlayers: number): number {
@@ -228,6 +253,15 @@ function requiredAchievements(numPlayers: number): number {
 }
 
 function endIf({ G, ctx }: { G: InnovationState; ctx: Ctx }): InnovationGameOver | undefined {
+  // Solo-win override (Empiricism / Collaboration / AI / Bioengineering /
+  // Globalization / Self Service) — declared by a handler via `winSolo`.
+  if (G.winnerOverride) {
+    return {
+      winners: G.winnerOverride.winners,
+      reason: G.winnerOverride.reason as InnovationGameOver['reason'],
+    };
+  }
+
   const ids = Object.keys(G.players);
   const need = requiredAchievements(ctx.numPlayers);
 

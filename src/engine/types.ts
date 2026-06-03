@@ -78,12 +78,38 @@ export interface PendingChoice {
 export type ChoiceKind =
   | 'select-hand-card'
   | 'select-hand-card-subset'
+  | 'select-score-card'
+  | 'select-score-card-subset'
   | 'select-board-color'
+  | 'select-value'
+  | 'select-card-order'
   | 'yes-no';
 
-/** A response to a PendingChoice: a single option, a subset, a yes/no, or
- *  `null` (declined). */
+/** A response to a PendingChoice: a single option, a subset / permutation, a
+ *  yes/no, or `null` (declined). For `select-card-order`, the array is the
+ *  chosen permutation of the options (top-first). */
 export type ChoiceResponse = number | number[] | boolean | null;
+
+/** Cross-player choice ownership: `PendingChoice.playerId` is the player who
+ *  ANSWERS the prompt (drives currentActor + redaction). For most cards
+ *  this equals the handler `targetId` — the share/demand target is the one
+ *  picking. A few cards invert this — e.g. Collaboration draws two cards
+ *  for the target, then the ACTIVATOR picks one of them. In those handlers,
+ *  set `playerId` to `g.dogmaRun.activatingPlayerId` rather than `targetId`. */
+
+/** One "execute card X's non-demand effects for player Y only" frame queued
+ *  by a handler (Robotics, Self Service, Computers eff2, Software eff2,
+ *  Satellites eff3). The driver drains these between handler calls before
+ *  advancing to the next target. Each frame carries its own handler scratch
+ *  state so nested handlers don't clobber their caller's. */
+export interface NestedFrame {
+  cardId: number;
+  targetPlayerId: string;
+  /** 0-based effect index currently being serviced. */
+  effectIndex: number;
+  /** Per-effect handler scratch (reset between effects, like top-level). */
+  handlerState: Record<string, unknown>;
+}
 
 /** Live state of an in-flight dogma resolution — the C# `DogmaContext`, made
  *  JSON-serializable so it can sit in `G` across move boundaries.
@@ -117,6 +143,19 @@ export interface DogmaRun {
    *  the demand fired — currently just Oars's second effect. Persists for
    *  the lifetime of the dogma, never reset between levels. */
   demandSuccessful: boolean;
+  /** Stack of pushed "execute card X for player Y, non-demand only" frames
+   *  (Robotics, Self Service, Computers eff2, Software eff2, Satellites
+   *  eff3). The driver drains these after each handler call. Frames may
+   *  themselves push further frames. */
+  nestedFrames: NestedFrame[];
+  /** Fission sentinel — set when effect 1 wiped everyone's boards/hands/scores
+   *  so effect 2 can short-circuit. (Lives here rather than in handlerState
+   *  because it crosses the level boundary.) */
+  fissionWiped: boolean;
+  /** True when the most recent pause came from inside a nested frame, so the
+   *  next resume routes the response to the top nested frame's handler rather
+   *  than the main effect's handler. False (or absent) otherwise. */
+  pausedInNested: boolean;
 }
 
 /** Root game state = boardgame.io's `G`. */
@@ -136,6 +175,11 @@ export interface InnovationState {
   /** Set when a player must draw above age 10 (deck exhaustion) — ends the
    *  game on the highest-score tiebreak. */
   endByDraw: boolean;
+  /** Solo-win override: when set, `endIf` returns it directly, ignoring
+   *  achievement and deck-exhaustion paths. Used by Empiricism, Collaboration,
+   *  AI, Bioengineering, Globalization, Self Service (the "I just win" cards).
+   *  Set via `winSolo(g, playerId, reason)`. */
+  winnerOverride: { winners: string[]; reason: string } | null;
   log: string[];
 }
 
