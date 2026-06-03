@@ -15,7 +15,7 @@ import { countIcons } from '../engine/icons';
 import { YourBoard, OpponentBoard, Hand, ScorePileStrip, panel, sectionTitle } from './Board';
 import { ChoicePrompt } from './Choice';
 import { DetailCard } from './DetailCard';
-import { IconBadge } from './Icon';
+import { IconBadge, SpecialAchievementBadge } from './Icon';
 import { pickAction } from '../ai/greedy';
 import { pageBg, textColor, cardBorder } from './colors';
 
@@ -375,12 +375,17 @@ function AchievementsPanel({
           );
         })}
       </div>
-      <div style={{ marginTop: 8, fontSize: 12, color: textColor, lineHeight: 1.5 }}>
+      <div style={{ marginTop: 10, fontSize: 12, color: textColor }}>
         {G.availableSpecialAchievements.length === 0
           ? <span style={{ opacity: 0.6 }}>(all specials claimed)</span>
           : (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 8 }}>
-              {G.availableSpecialAchievements.map((name) => <span key={name}>{name}</span>)}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {G.availableSpecialAchievements.map((name) => (
+                <div key={name} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                  <SpecialAchievementBadge name={name} size={32} />
+                  <span style={{ fontSize: 10, fontWeight: 600 }}>{name}</span>
+                </div>
+              ))}
             </div>
           )
         }
