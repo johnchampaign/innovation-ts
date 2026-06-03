@@ -50,7 +50,7 @@ registerDogma('Anatomy', (g, target, ctx) => {
     g.dogmaRun!.demandSuccessful = true;
     if (g.endByDraw || g.winnerOverride) return true;
 
-    // Phase 2: top card of equal age.
+    // Pick a top card whose age matches the just-returned score card.
     const eligible: number[] = [];
     for (const c of COLORS) {
       const top = topCard(p, c);

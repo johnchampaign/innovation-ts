@@ -66,13 +66,19 @@ export interface PendingChoice {
   kind: ChoiceKind;
   prompt: string;
   playerId: string;
-  /** Legal answers the caller may pick from (card IDs, ages, etc.). */
+  /** Legal answers the caller may pick from (card IDs, ages, etc.).
+   *  For `select-player`, this carries player ids re-cast as numbers via
+   *  `parseInt` — see `playerOptions` below for the canonical accessor. */
   options: number[];
   /** Whether the player may decline (answer `null`). */
   optional: boolean;
   /** For subset picks: inclusive bounds on how many options to choose. */
   minCount?: number;
   maxCount?: number;
+  /** For `select-player`: the legal answer ids as the original string keys
+   *  ('0', '1', ...). Mirrors `options` but preserves the string form so
+   *  handlers and UI don't need to round-trip through Number. */
+  playerOptions?: string[];
 }
 
 export type ChoiceKind =
@@ -83,6 +89,7 @@ export type ChoiceKind =
   | 'select-board-color'
   | 'select-value'
   | 'select-card-order'
+  | 'select-player'
   | 'yes-no';
 
 /** A response to a PendingChoice: a single option, a subset / permutation, a

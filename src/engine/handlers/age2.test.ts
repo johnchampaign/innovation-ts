@@ -356,6 +356,43 @@ describe('Road Building', () => {
     expect(g.players['0'].piles.green.cards[0]).toBe(oppGreen);
   });
 
+  it('3p with two opponents: surfaces select-player; declining skips exchange', () => {
+    const g = freshGame(3);
+    const red = takeFromDeck(g, cardByTitle('Archery').id);
+    const other = takeFromDeck(g, cardByTitle('Agriculture').id);
+    g.players['0'].hand = [red, other];
+    // Each opponent: a top green so either is a valid pick.
+    g.players['1'].piles.green.cards = [takeFromDeck(g, cardByTitle('Clothing').id)];
+    g.players['2'].piles.green.cards = [takeFromDeck(g, cardByTitle('Sailing').id)];
+
+    startDogma(g, cardByTitle('Road Building').id, '0');
+    resumeDogma(g, [red, other]);
+    expect(g.pendingChoice?.kind).toBe('select-player');
+    expect(g.pendingChoice?.playerOptions).toEqual(['1', '2']);
+    // Decline → no exchange happens.
+    const done = resumeDogma(g, null);
+    expect(done).toBe(true);
+    expect(g.players['0'].piles.red.cards[0]).toBe(red); // still on activator
+  });
+
+  it('3p: picking opponent 2 swaps red↔green with player 2', () => {
+    const g = freshGame(3);
+    const red = takeFromDeck(g, cardByTitle('Archery').id);
+    const other = takeFromDeck(g, cardByTitle('Agriculture').id);
+    g.players['0'].hand = [red, other];
+    g.players['1'].piles.green.cards = [takeFromDeck(g, cardByTitle('Clothing').id)];
+    const p2Green = takeFromDeck(g, cardByTitle('Sailing').id);
+    g.players['2'].piles.green.cards = [p2Green];
+
+    startDogma(g, cardByTitle('Road Building').id, '0');
+    resumeDogma(g, [red, other]);
+    resumeDogma(g, 2); // pick player 2
+    expect(g.players['2'].piles.red.cards[0]).toBe(red);
+    expect(g.players['0'].piles.green.cards[0]).toBe(p2Green);
+    // Player 1's green pile untouched.
+    expect(g.players['1'].piles.green.cards.length).toBe(1);
+  });
+
   it('melding two with no top red: exchange not offered, done after meld', () => {
     const g = freshGame(2);
     // Both cards non-red so no red on top after meld.

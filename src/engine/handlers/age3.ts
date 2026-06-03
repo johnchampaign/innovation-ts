@@ -410,8 +410,9 @@ registerDogma('Medicine', (g, target, ctx) => {
 // ---------------------------------------------------------------------------
 // Optics — Draw and meld a 3. If it has a [Crown], draw and score a 4.
 // Otherwise transfer a card from your score pile to the score pile of an
-// opponent with fewer points than you. We auto-pick the lowest-score
-// opponent (tiebreak: next seat).
+// opponent with fewer points than you.
+// 3+p note: the rules let the player pick WHICH lower-score opponent; we
+// surface a select-player prompt when more than one is eligible.
 // ---------------------------------------------------------------------------
 registerDogma('Optics', (g, target, ctx) => {
   if (!ctx.handlerState.step) {
@@ -425,33 +426,53 @@ registerDogma('Optics', (g, target, ctx) => {
       return true;
     }
 
-    // Find opponent with fewer points; auto-pick lowest (tiebreak: next seat).
+    if (g.players[target].scorePile.length === 0) return true;
     const myScore = scoreOf(g.players[target]);
     const sortedIds = Object.keys(g.players).sort();
-    const myIdx = sortedIds.indexOf(target);
-    const n = sortedIds.length;
-    let chosen: string | null = null;
-    let bestScore = Number.POSITIVE_INFINITY;
-    for (let i = 1; i < n; i++) {
-      const pid = sortedIds[(myIdx + i) % n];
-      const s = scoreOf(g.players[pid]);
-      if (s >= myScore) continue;
-      if (s < bestScore) { bestScore = s; chosen = pid; }
+    const eligible = sortedIds.filter((pid) =>
+      pid !== target && scoreOf(g.players[pid]) < myScore,
+    );
+    if (eligible.length === 0) return true;
+
+    if (eligible.length === 1) {
+      // Single eligible opponent — go straight to the score-card pick.
+      ctx.handlerState.step = 'pick-card';
+      ctx.handlerState.opponent = eligible[0];
+      ctx.pendingChoice = {
+        kind: 'select-score-card',
+        prompt: `Optics: transfer a card from your score pile to player ${eligible[0]}.`,
+        playerId: target,
+        options: [...g.players[target].scorePile],
+        optional: false,
+      };
+      return;
     }
-    if (chosen === null) return true;
-    if (g.players[target].scorePile.length === 0) return true;
-    ctx.handlerState.step = 'pick';
-    ctx.handlerState.opponent = chosen;
+    // 3+p: let activator pick which lower-score opponent.
+    ctx.handlerState.step = 'pick-opp';
+    ctx.pendingChoice = {
+      kind: 'select-player',
+      prompt: 'Optics: choose a lower-score opponent to receive a card from your score pile.',
+      playerId: target,
+      options: eligible.map((pid) => parseInt(pid, 10)),
+      playerOptions: eligible,
+      optional: false,
+    };
+    return;
+  }
+  if (ctx.handlerState.step === 'pick-opp') {
+    const opp = String(ctx.response as number);
+    ctx.handlerState.step = 'pick-card';
+    ctx.handlerState.opponent = opp;
     ctx.pendingChoice = {
       kind: 'select-score-card',
-      prompt: 'Optics: transfer a card from your score pile to a poorer opponent.',
+      prompt: `Optics: transfer a card from your score pile to player ${opp}.`,
       playerId: target,
       options: [...g.players[target].scorePile],
       optional: false,
     };
     return;
   }
-  // step === 'pick'
+  // step === 'pick-card'
   const cardId = ctx.response as number;
   const opp = ctx.handlerState.opponent as string;
   transferScoreToScore(g, target, opp, cardId);

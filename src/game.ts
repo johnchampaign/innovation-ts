@@ -199,6 +199,7 @@ function isValidResponse(G: InnovationState, response: ChoiceResponse): boolean 
     case 'select-score-card':
     case 'select-board-color':
     case 'select-value':
+    case 'select-player':
       return typeof response === 'number' && pc.options.includes(response);
     case 'yes-no':
       return typeof response === 'boolean';

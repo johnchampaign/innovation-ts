@@ -336,7 +336,8 @@ registerDogma('Philosophy', (g, target, ctx) => {
 // Road Building — "Meld one or two cards from your hand. If you melded two,
 // you may transfer your top red card to another player's board. In exchange,
 // transfer that player's top green card to your board."
-// Phase-2 cut: opponent picked as next seat (no select-player kind yet).
+// 3+p note: the rules let the player pick WHICH opponent. We surface a
+// select-player prompt; in 2p the only opponent is auto-picked.
 // ---------------------------------------------------------------------------
 registerDogma('Road Building', (g, target, ctx) => {
   const p = g.players[target];
@@ -363,24 +364,45 @@ registerDogma('Road Building', (g, target, ctx) => {
       if (g.endByDraw) return true;
     }
     if (resp.length < 2) return true;
-    // Two melded — offer exchange if the player has a top red and there's an opponent.
+    // Two melded — offer exchange if the player has a top red and an opponent.
     if (p.piles.red.cards.length === 0) return true;
     const pids = Object.keys(g.players).sort();
-    if (pids.length <= 1) return true;
-    const idx = pids.indexOf(target);
-    const opponentId = pids[(idx + 1) % pids.length];
-    ctx.handlerState.step = 'exchange';
-    ctx.handlerState.opponentId = opponentId;
+    const opponents = pids.filter((pid) => pid !== target);
+    if (opponents.length === 0) return true;
+    if (opponents.length === 1) {
+      ctx.handlerState.step = 'exchange';
+      ctx.handlerState.opponentId = opponents[0];
+      ctx.pendingChoice = {
+        kind: 'yes-no',
+        prompt: `Road Building: transfer your top red card to player ${opponents[0]} in exchange for their top green card?`,
+        playerId: target,
+        options: [],
+        optional: false,
+      };
+      return;
+    }
+    // 3+p: let the activator pick the opponent.
+    ctx.handlerState.step = 'pick-opp';
     ctx.pendingChoice = {
-      kind: 'yes-no',
-      prompt: `Road Building: transfer your top red card to player ${opponentId} in exchange for their top green card?`,
+      kind: 'select-player',
+      prompt: 'Road Building: choose an opponent to exchange your top red card for their top green card. Declining skips the exchange.',
       playerId: target,
-      options: [],
-      optional: false,
+      options: opponents.map((pid) => parseInt(pid, 10)),
+      playerOptions: opponents,
+      optional: true,
     };
     return;
   }
-  // step === 'exchange'
+  if (ctx.handlerState.step === 'pick-opp') {
+    const resp = ctx.response;
+    if (resp === null || resp === undefined) return true; // declined → skip exchange
+    const opponentId = String(resp);
+    transferBoardToBoard(g, target, opponentId, 'red');
+    if (g.endByDraw) return true;
+    transferBoardToBoard(g, opponentId, target, 'green');
+    return true;
+  }
+  // step === 'exchange' (2p path)
   if (ctx.response !== true) return true;
   const opponentId = ctx.handlerState.opponentId as string;
   transferBoardToBoard(g, target, opponentId, 'red');

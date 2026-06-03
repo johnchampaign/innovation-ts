@@ -88,6 +88,7 @@ function enumerateChoiceResponses(G: InnovationState): InnovationAction[] {
     case 'select-score-card':
     case 'select-board-color':
     case 'select-value':
+    case 'select-player':
       for (const o of pc.options) out.push({ kind: 'resolveChoice', response: o });
       break;
     case 'yes-no':

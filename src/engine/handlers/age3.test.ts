@@ -302,6 +302,33 @@ describe('Optics', () => {
     expect(done).toBe(true);
     expect(g.players['0'].piles[noCrown3.color].cards).toContain(noCrown3.id);
   });
+
+  it('3p with multiple poorer opponents: prompts activator to pick which', () => {
+    const g = freshGame(3);
+    // Activator needs a lightbulb advantage or else sharers run first and
+    // eat the forced deck-top. Writing (blue, 3 lightbulbs) on the board
+    // gives '0' 3 lightbulbs vs 0 — opponents excluded from level 0.
+    g.players['0'].piles.blue.cards = [takeFromDeck(g, cardByTitle('Writing').id)];
+    // Force non-crown 3 to top so we go to the transfer branch.
+    const noCrown3 = ALL_CARDS.find((c) => c.age === 3 && !c.icons.includes('crown'))!;
+    takeFromDeck(g, noCrown3.id);
+    g.decks[3].unshift(noCrown3.id);
+    // Activator with a score-pile card to transfer.
+    const scoreCard = takeFromDeck(g, cardByTitle('Calendar').id);
+    g.players['0'].scorePile = [scoreCard];
+    // Both opponents have 0 score → both eligible.
+
+    startDogma(g, cardByTitle('Optics').id, '0');
+    expect(g.pendingChoice?.kind).toBe('select-player');
+    expect(g.pendingChoice?.playerOptions).toEqual(['1', '2']);
+    resumeDogma(g, 2); // pick opponent 2
+    // Now should pause on select-score-card.
+    expect(g.pendingChoice?.kind).toBe('select-score-card');
+    expect(g.pendingChoice?.playerId).toBe('0'); // activator picks the card
+    resumeDogma(g, scoreCard);
+    expect(g.players['2'].scorePile).toContain(scoreCard);
+    expect(g.players['1'].scorePile.length).toBe(0); // untouched
+  });
 });
 
 describe('Paper', () => {
