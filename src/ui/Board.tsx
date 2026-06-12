@@ -6,17 +6,21 @@ import type { CSSProperties } from 'react';
 import { score, achievementCount, highestTopAge } from '../engine/mechanics';
 import { COLORS } from '../engine/types';
 import type { Color, InnovationState } from '../engine/types';
+import { useState } from 'react';
 import { CardChip } from './Card';
+import { PilePopover } from './PilePopover';
+import { cardById } from '../card-data';
 import {
-  panelBg, textColor, cardBorder, splayArrow, splayName,
+  panelBg, textColor, cardBorder, splayArrow, splayName, displayPid,
 } from './colors';
 
-const VISIBLE_BY_SPLAY = {
-  none:  [] as (0 | 1 | 2 | 3)[],
-  left:  [3] as (0 | 1 | 2 | 3)[],
-  right: [0, 1] as (0 | 1 | 2 | 3)[],
-  up:    [1, 2, 3] as (0 | 1 | 2 | 3)[],
-};
+/** Card-id → age, safe for hidden ids (returns 0). Used by hover-the-back
+ *  flows so we don't blow up on a redacted -1. */
+function idToAge(id: number): number {
+  if (id < 0) return 0;
+  return cardById(id).age;
+}
+
 
 // --------------------------------------------------------------------------
 // "Your Board" — 5 tiles in a row with Size · Splay labels beneath each.
@@ -74,10 +78,10 @@ function PileColumn({
   onHoverCard?: (cardId: number) => void;
 }) {
   const top = cards[0];
-  const covered = cards.slice(1);
-  const visible = VISIBLE_BY_SPLAY[splay];
+  const [showPopover, setShowPopover] = useState(false);
   return (
     <div
+      onMouseLeave={() => setShowPopover(false)}
       style={{
         padding: 4,
         borderRadius: 4,
@@ -93,29 +97,98 @@ function PileColumn({
           <CardChip cardId={top} onHover={onHoverCard ? () => onHoverCard(top) : undefined} />
         </div>
       )}
-      {covered.length > 0 && visible.length > 0 && (
-        <div style={{
-          display: 'flex', flexDirection: 'column', gap: 1, width: 180,
-          marginTop: -2,
-        }}>
-          {covered.slice(0, 5).map((id, i) => (
-            <CardChip
-              key={`${id}-${i}`}
-              cardId={id}
-              size="summary"
-              onHover={onHoverCard ? () => onHoverCard(id) : undefined}
-            />
-          ))}
-        </div>
-      )}
-      <div style={{
-        fontSize: 11, color: textColor, opacity: 0.85, textAlign: 'center',
-        marginTop: 2,
-      }}>
+      {/* Size / Splay label. Pile contents are public knowledge in Innovation
+       *  (face-up on the board), so hovering Size pops a full listing —
+       *  works for your own piles and for opponents'. */}
+      <div
+        onMouseEnter={() => cards.length > 0 && setShowPopover(true)}
+        style={{
+          fontSize: 11, color: textColor, opacity: 0.85, textAlign: 'center',
+          marginTop: 2,
+          cursor: cards.length > 0 ? 'help' : 'default',
+          position: 'relative',
+        }}
+      >
         <u>Size: <strong>{cards.length}</strong></u>
         {splay !== 'none' && <> · Splay: <strong>{splayName[splay]} {splayArrow[splay]}</strong></>}
+        {showPopover && cards.length > 0 && (
+          <PilePopover color={color} cards={cards} splay={splay} />
+        )}
       </div>
     </div>
+  );
+}
+
+/** One per-color cell in the opponent row. Hovering its Size label opens a
+ *  popover showing every card in the pile (public knowledge in Innovation). */
+function OpponentPileCell({
+  color, cards, splay, onHoverCard,
+}: {
+  color: Color;
+  cards: number[];
+  splay: 'none' | 'left' | 'right' | 'up';
+  onHoverCard?: (cardId: number) => void;
+}) {
+  const [showPopover, setShowPopover] = useState(false);
+  const empty = cards.length === 0;
+  return (
+    <div
+      onMouseLeave={() => setShowPopover(false)}
+      style={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+    >
+      {empty ? (
+        <div style={{
+          height: 24, borderRadius: 3, border: `1px dashed ${cardBorder}`,
+          fontSize: 10, color: textColor, opacity: 0.4,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>{color}</div>
+      ) : (
+        <CardChip
+          cardId={cards[0]}
+          size="summary"
+          onHover={onHoverCard ? () => onHoverCard(cards[0]) : undefined}
+        />
+      )}
+      <div
+        onMouseEnter={() => !empty && setShowPopover(true)}
+        style={{
+          fontSize: 10, color: textColor, opacity: 0.75, textAlign: 'center',
+          cursor: empty ? 'default' : 'help',
+          position: 'relative',
+        }}
+      >
+        <u>Size: {cards.length}</u>
+        {splay !== 'none' && ` · ${splayArrow[splay]}`}
+        {showPopover && !empty && (
+          <PilePopover color={color} cards={cards} splay={splay} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A line in the opponent-row summary that, on hover, fires onHover (which
+ *  fills the top-strip DetailCard with a card-backs breakdown). No native
+ *  browser tooltip — the title attribute used to display "Hover to see
+ *  card-back ages" near the cursor and over-promised that the cursor area
+ *  was where the info would appear. Now: an underlined link-style label
+ *  signals interactivity; the breakdown shows up where the rest of the
+ *  hover-detail UI lives (top-strip DetailCard). */
+function HoverableSummary({
+  onHover, label,
+}: { onHover?: () => void; label: React.ReactNode }) {
+  if (!onHover) return <div>{label}</div>;
+  return (
+    <div
+      onMouseEnter={onHover}
+      style={{
+        cursor: 'help',
+        textDecoration: 'underline',
+        textDecorationStyle: 'dotted',
+        textDecorationColor: 'rgba(0,0,0,0.35)',
+        textUnderlineOffset: 2,
+      }}
+    >{label}</div>
   );
 }
 
@@ -142,47 +215,52 @@ interface OpponentBoardProps {
   playerId: string;
   label: string;
   onHoverCard?: (cardId: number) => void;
+  onHoverPile?: (label: string, ages: number[]) => void;
+  /** Called when the cursor leaves this row entirely — used to clear the
+   *  DetailCard back to its default state. */
+  onHoverEnd?: () => void;
 }
 
-export function OpponentBoard({ G, playerId, label, onHoverCard }: OpponentBoardProps) {
+export function OpponentBoard({ G, playerId, label, onHoverCard, onHoverPile, onHoverEnd }: OpponentBoardProps) {
   const p = G.players[playerId];
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: '120px 1fr 120px', gap: 12,
-      alignItems: 'center',
-      padding: '6px 10px',
-      borderTop: `1px solid ${cardBorder}`,
-    }}>
+    <div
+      onMouseLeave={onHoverEnd}
+      style={{
+        display: 'grid', gridTemplateColumns: '120px 1fr 120px', gap: 12,
+        alignItems: 'center',
+        padding: '6px 10px',
+        borderTop: `1px solid ${cardBorder}`,
+      }}
+    >
       <div style={{ fontSize: 13, fontWeight: 600, color: textColor }}>{label}</div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
         {COLORS.map((c) => (
-          <div key={c} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {p.piles[c].cards.length === 0 ? (
-              <div style={{
-                height: 24, borderRadius: 3, border: `1px dashed ${cardBorder}`,
-                fontSize: 10, color: textColor, opacity: 0.4,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>{c}</div>
-            ) : (
-              <CardChip
-                cardId={p.piles[c].cards[0]}
-                size="summary"
-                onHover={onHoverCard ? () => onHoverCard(p.piles[c].cards[0]) : undefined}
-              />
-            )}
-            <div style={{ fontSize: 10, color: textColor, opacity: 0.75, textAlign: 'center' }}>
-              <u>Size: {p.piles[c].cards.length}</u>
-              {p.piles[c].splay !== 'none' && ` · ${splayArrow[p.piles[c].splay]}`}
-            </div>
-          </div>
+          <OpponentPileCell
+            key={c}
+            color={c}
+            cards={p.piles[c].cards}
+            splay={p.piles[c].splay}
+            onHoverCard={onHoverCard}
+          />
         ))}
       </div>
-      <div style={{ fontSize: 11, color: textColor, opacity: 0.8, textAlign: 'right' }}>
-        Hand <strong>{p.hand.length}</strong>
-        <br />
-        Score <strong>{score(p)}</strong> ({p.scorePile.length}c)
-        <br />
-        Achv <strong>{achievementCount(p)}</strong>
+      <div style={{ fontSize: 11, color: textColor, opacity: 0.85, textAlign: 'right' }}>
+        <HoverableSummary
+          onHover={onHoverPile ? () => onHoverPile(
+            `Player ${displayPid(playerId)} — Hand`,
+            p.hand.filter((id) => id >= 0).map((id) => idToAge(id)),
+          ) : undefined}
+          label={<>Hand <strong>{p.hand.length}</strong></>}
+        />
+        <HoverableSummary
+          onHover={onHoverPile ? () => onHoverPile(
+            `Player ${displayPid(playerId)} — Score Pile`,
+            p.scorePile.filter((id) => id >= 0).map((id) => idToAge(id)),
+          ) : undefined}
+          label={<>Score <strong>{score(p)}</strong> ({p.scorePile.length}c)</>}
+        />
+        <div>Achv <strong>{achievementCount(p)}</strong></div>
       </div>
     </div>
   );
@@ -201,7 +279,10 @@ interface HandProps {
 export function Hand({ cards, onMeld, onHoverCard }: HandProps) {
   if (cards.length === 0) return <EmptyNote text="(hand empty)" />;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    // Wrap so 4+ cards don't blow out the vertical space — at the typical
+    // ~360px hand panel width, 2 strips per row land naturally without
+    // squeezing the titles.
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
       {cards.map((id, i) => (
         <CardChip
           key={`${id}-${i}`}
@@ -209,6 +290,7 @@ export function Hand({ cards, onMeld, onHoverCard }: HandProps) {
           size="summary"
           onClick={onMeld ? () => onMeld(i) : undefined}
           onHover={onHoverCard ? () => onHoverCard(id) : undefined}
+          style={{ flex: '1 1 160px', minWidth: 140 }}
         />
       ))}
     </div>
@@ -223,13 +305,14 @@ export function ScorePileStrip({
 }) {
   if (cards.length === 0) return <EmptyNote text="(score pile empty)" />;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
       {cards.map((id, i) => (
         <CardChip
           key={`${id}-${i}`}
           cardId={id}
           size="summary"
           onHover={onHoverCard ? () => onHoverCard(id) : undefined}
+          style={{ flex: '1 1 160px', minWidth: 140 }}
         />
       ))}
     </div>
@@ -249,7 +332,7 @@ export function sectionTitle(): CSSProperties {
 
 export function panel(): CSSProperties {
   return {
-    padding: '8px 12px', borderRadius: 4,
+    padding: '6px 10px', borderRadius: 4,
     background: panelBg, border: `1px solid ${cardBorder}`,
   };
 }

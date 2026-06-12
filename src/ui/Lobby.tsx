@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Game as HotseatGame } from './Game';
 import { createGame, type CreateGameResult } from '../online/client';
-import { pageBg, panelBg, textColor, cardBorder } from './colors';
+import { pageBg, panelBg, textColor, cardBorder, displayPid } from './colors';
 
 export function Lobby() {
   const [numPlayers, setNumPlayers] = useState(2);
@@ -62,7 +62,7 @@ export function Lobby() {
         <section style={{ borderTop: '1px solid rgba(0,0,0,0.12)', paddingTop: 22 }}>
           <h2 style={h2()}>Single device</h2>
           <p style={muted()}>
-            <strong>Solo vs AI</strong> — you’re Player 0, the greedy AI fills the rest.
+            <strong>Solo vs AI</strong> — you’re Player 1, the greedy AI fills the rest.
             {' '}<strong>Hotseat</strong> — humans share this tab.
           </p>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -100,7 +100,7 @@ function Invites({ result, onBack }: { result: CreateGameResult; onBack: () => v
               background: '#fbf7da', border: `1px solid ${cardBorder}`, borderRadius: 4,
               padding: '8px 12px',
             }}>
-              <span style={{ minWidth: 78, fontWeight: 600, fontSize: 13 }}>Player {pid}</span>
+              <span style={{ minWidth: 78, fontWeight: 600, fontSize: 13 }}>Player {displayPid(pid)}</span>
               <code style={{
                 flex: 1, fontSize: 11, overflowX: 'auto', whiteSpace: 'nowrap',
                 opacity: 0.85, color: textColor,

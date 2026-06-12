@@ -4,6 +4,8 @@
 // never reaches into piles/decks directly.
 
 import type { InnovationState, PlayerData, Color, Splay, IconName } from './types';
+import { COLORS } from './types';
+import { countIcons } from './icons';
 import { cardById } from '../card-data';
 
 export function pile(p: PlayerData, color: Color) {
@@ -360,6 +362,48 @@ export function purgeValueFromAllScorePiles(g: InnovationState, age: number): vo
  *  Sets `G.winnerOverride`; `endIf` picks it up at the next reducer step. */
 export function winSolo(g: InnovationState, playerId: string, reason: string): void {
   g.winnerOverride = { winners: [playerId], reason };
+}
+
+/** Auto-detect board-state special achievements after every action. Mirrors
+ *  C# `SpecialAchievements.CheckAll` (which itself mirrors VB6's repeated
+ *  scan inside update_icon_total / check_for_achievements). Loops while any
+ *  claim landed — chained claims (Empire becoming claimable because Universe
+ *  just consumed someone's last 9, etc.) all settle in one call. Returns
+ *  true if any claim happened. Safe to call mid-anything; respects the
+ *  win-override / draw-exhaustion endgame flags. */
+export function checkAutoSpecials(g: InnovationState): boolean {
+  // No early-out on endByDraw / winnerOverride — the C# CheckAll has no
+  // such guard, and the user-reported bug was exactly that: Self Service's
+  // solo-win declared first, then Empire's conditions met by the same
+  // action, but checkAutoSpecials bailed and Empire never got claimed.
+  // After endIf reads a gameover, bgio stops accepting moves anyway, so
+  // there's no risk of runaway claims post-game.
+  const ICONS: IconName[] = ['leaf', 'castle', 'lightbulb', 'crown', 'factory', 'clock'];
+  let changed = false;
+  for (let safety = 0; safety < 20; safety++) {
+    let didOne = false;
+    didOne = tryClaim(g, 'World',    (p) => countIcons(p, 'clock') >= 12) || didOne;
+    didOne = tryClaim(g, 'Empire',   (p) => ICONS.every((i) => countIcons(p, i) >= 3)) || didOne;
+    didOne = tryClaim(g, 'Universe', (p) => COLORS.every((c) => {
+      const top = p.piles[c].cards[0];
+      return top !== undefined && top >= 0 && cardById(top).age >= 8;
+    })) || didOne;
+    didOne = tryClaim(g, 'Wonder',   (p) => COLORS.every((c) => {
+      const pile = p.piles[c];
+      return pile.cards.length > 0 && (pile.splay === 'up' || pile.splay === 'right');
+    })) || didOne;
+    if (!didOne) break;
+    changed = true;
+  }
+  return changed;
+}
+
+function tryClaim(g: InnovationState, name: string, cond: (p: PlayerData) => boolean): boolean {
+  if (!g.availableSpecialAchievements.includes(name)) return false;
+  for (const pid of Object.keys(g.players).sort()) {
+    if (cond(g.players[pid])) return claimSpecialAchievement(g, pid, name);
+  }
+  return false;
 }
 
 /** Claim a special achievement (Monument / Empire / World / Wonder / Universe)

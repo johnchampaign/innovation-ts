@@ -3,7 +3,7 @@
 //
 // Errors surface as thrown Error — useGame's `error` slot will catch them.
 
-import type { GameClientApi } from 'digital-boardgame-framework/client';
+import type { GameClientApi, MessagingClientApi } from 'digital-boardgame-framework/client';
 import type { BgioState, InnovationAction } from '../adapter/innovationAdapter';
 
 export interface CreateGameResult {
@@ -57,6 +57,30 @@ export function makeClient(
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(submission),
+      }));
+    },
+  };
+}
+
+/** Build a MessagingClientApi for in-game chat over the /chat routes.
+ *  Both calls return the refreshed ChatMessage[] (the framework's
+ *  useMessages / ChatPanel consume it). Same per-seat token auth as the
+ *  game client — the server stamps the sender seat from the token. */
+export function makeMessagingClient(
+  gameId: string,
+  token: string,
+): MessagingClientApi {
+  const base = `/api/games/${encodeURIComponent(gameId)}/chat`;
+  const q = `?token=${encodeURIComponent(token)}`;
+  return {
+    async listMessages() {
+      return readJson(await window.fetch(`${base}${q}`));
+    },
+    async postMessage(body: string) {
+      return readJson(await window.fetch(`${base}${q}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ body }),
       }));
     },
   };

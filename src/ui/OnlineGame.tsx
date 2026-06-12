@@ -2,22 +2,85 @@
 // comes from the framework's useGame hook polling the Pages Functions API.
 // View is already per-player-redacted by the server.
 
-import { useMemo } from 'react';
-import { useGame } from 'digital-boardgame-framework/client';
-import { makeClient } from '../online/client';
+import { useMemo, useState } from 'react';
+import { useGame, ChatPanel } from 'digital-boardgame-framework/client';
+import { makeClient, makeMessagingClient } from '../online/client';
+import { ReportDialog, type Severity } from './ReportDialog';
+import html2canvas from 'html2canvas';
 import { ALL_CARDS } from '../card-data';
 import { COLORS } from '../engine/types';
 import type { Color, ChoiceResponse, IconName } from '../engine/types';
 import { countIcons } from '../engine/icons';
 import { YourBoard, OpponentBoard, Hand, ScorePileStrip, panel, SectionHeader } from './Board';
 import { ChoicePrompt } from './Choice';
-import { pageBg, textColor, cardBorder, iconGlyph } from './colors';
+import { pageBg, textColor, cardBorder, iconGlyph, displayPid } from './colors';
 
 interface Props { gameId: string; token: string; }
 
 export function OnlineGame({ gameId, token }: Props) {
   const client = useMemo(() => makeClient(gameId, token), [gameId, token]);
+  const messagingClient = useMemo(() => makeMessagingClient(gameId, token), [gameId, token]);
   const game = useGame(client, { pollMs: 2000, pauseWhenHidden: true });
+  const [reportOpen, setReportOpen] = useState<null | 'bug' | 'logs'>(null);
+  const [pendingScreenshot, setPendingScreenshot] = useState<string | undefined>(undefined);
+
+  async function openReport(kind: 'bug' | 'logs') {
+    // Upload Logs doesn't show attachment toggles — skip the screenshot.
+    if (kind === 'bug') {
+      try {
+        const canvas = await html2canvas(document.body, {
+          scale: 0.7, logging: false, useCORS: true, backgroundColor: '#F3EFD3',
+        });
+        setPendingScreenshot(canvas.toDataURL('image/jpeg', 0.7));
+      } catch (e) {
+        console.warn('screenshot capture failed', e);
+        setPendingScreenshot(undefined);
+      }
+    } else {
+      setPendingScreenshot(undefined);
+    }
+    setReportOpen(kind);
+  }
+
+  // Online report: posts to /api/upload-log so the report lands in the
+  // dedicated GitHub reports repo (same path the hotseat client uses).
+  // The view we have at submission time is already redacted per-player,
+  // so the issue contains what THIS player sees — not the server-side
+  // unredacted snapshot. That's usually what the reporter is describing.
+  async function submitReport(
+    message: string,
+    severity: Severity,
+    opts: { attachScreenshot: boolean; attachLog: boolean },
+  ): Promise<string> {
+    const payload = {
+      kind: reportOpen,
+      severity,
+      message,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      build: 'innovation-ts',
+      state: opts.attachLog ? game.view : null,
+      log: [],
+      screenshotDownloaded: opts.attachScreenshot && !!pendingScreenshot,
+    };
+    if (opts.attachScreenshot && pendingScreenshot) {
+      const a = document.createElement('a');
+      a.href = pendingScreenshot;
+      a.download = `innovation-screenshot-${Date.now()}.jpg`;
+      a.click();
+    }
+    const res = await fetch('/api/upload-log', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    const { issueUrl } = await res.json() as { issueUrl: string };
+    return issueUrl;
+  }
 
   if (game.loading && !game.view) {
     return <Centered>Loading…</Centered>;
@@ -55,6 +118,13 @@ export function OnlineGame({ gameId, token }: Props) {
 
   const opponents = Object.keys(G.players).filter((pid) => pid !== you);
 
+  // Online games are always all-human (the AI only exists in the hotseat
+  // `Game` component, which has no chat). So the human seat count is just the
+  // total seat count. Gate chat on 2+ so a 1-seat online game (and, by
+  // construction, every solo-vs-AI game — which never reaches OnlineGame)
+  // shows no panel.
+  const humanSeatCount = Object.keys(G.players).length;
+
   return (
     <div style={{
       minHeight: '100vh', background: pageBg, color: textColor,
@@ -64,12 +134,26 @@ export function OnlineGame({ gameId, token }: Props) {
       <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 10 }}>
         <aside style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={panel()}>
-            <h1 style={{
-              margin: '0 0 4px', fontSize: 20, fontWeight: 700,
-            }}>Innovation</h1>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+              <h1 style={{
+                margin: '0 0 4px', fontSize: 20, fontWeight: 700,
+              }}>Innovation</h1>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={() => openReport('bug')} style={{
+                  padding: '2px 8px', borderRadius: 3,
+                  border: `1px solid ${cardBorder}`, background: '#e8e3c8',
+                  color: textColor, cursor: 'pointer', fontSize: 10, fontWeight: 600,
+                }} title="Report a problem">Report</button>
+                <button onClick={() => openReport('logs')} style={{
+                  padding: '2px 8px', borderRadius: 3,
+                  border: `1px solid ${cardBorder}`, background: '#e8e3c8',
+                  color: textColor, cursor: 'pointer', fontSize: 10, fontWeight: 600,
+                }} title="Upload current log + state to the dev">Upload logs</button>
+              </div>
+            </div>
             <div style={{ fontSize: 12 }}>
-              Turn <strong>{ctx.turn}</strong>{' · You are '}<strong>P{you}</strong>
-              {' · Active '}<strong>{ctx.currentPlayer}</strong>
+              Turn <strong>{ctx.turn}</strong>{' · You are '}<strong>P{displayPid(you)}</strong>
+              {' · Active '}<strong>{displayPid(ctx.currentPlayer)}</strong>
               <div style={{ marginTop: 2, color: yourTurn ? '#3a6f23' : '#9c5a18' }}>
                 {yourTurn ? 'Your turn' : 'Waiting…'}
               </div>
@@ -131,7 +215,7 @@ export function OnlineGame({ gameId, token }: Props) {
           </div>
 
           {opponents.map((pid) => (
-            <OpponentBoard key={pid} G={G} playerId={pid} label={`Opponent — Player ${pid}${pid === ctx.currentPlayer ? ' (turn)' : ''}`} />
+            <OpponentBoard key={pid} G={G} playerId={pid} label={`Opponent — Player ${displayPid(pid)}${pid === ctx.currentPlayer ? ' (turn)' : ''}`} />
           ))}
 
           {gameover && (
@@ -140,7 +224,7 @@ export function OnlineGame({ gameId, token }: Props) {
               background: '#d6c890', border: '1px solid #a98a4b',
             }}>
               <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>
-                Game over — {gameover.winners.length === 1 ? `Player ${gameover.winners[0]} wins` : `tied: ${gameover.winners.join(', ')}`}
+                Game over — {gameover.winners.length === 1 ? `Player ${displayPid(gameover.winners[0])} wins` : `tied: ${gameover.winners.map(displayPid).join(', ')}`}
               </div>
               <div style={{ fontSize: 13, opacity: 0.8 }}>{String(gameover.reason)}</div>
               <a href="/" style={{ ...linkButton(), marginTop: 8, display: 'inline-block' }}>← Lobby</a>
@@ -152,14 +236,38 @@ export function OnlineGame({ gameId, token }: Props) {
       {G.pendingChoice && youOwnChoice && (
         <ChoicePrompt pc={G.pendingChoice} onSubmit={onResolveChoice} />
       )}
+
+      {/* In-game chat — only for online games with 2+ human seats. The
+       *  framework's ChatPanel polls every ~12s (no realtime broadcaster
+       *  wired for this game). seatLabel renders 1-indexed player numbers
+       *  to match the rest of the UI; ChatPanel adds the "(you)" marker. */}
+      {humanSeatCount >= 2 && you !== null && (
+        <div style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 40, width: 300 }}>
+          <ChatPanel
+            client={messagingClient}
+            you={you}
+            seatLabel={(seat) => `Player ${displayPid(seat)}`}
+            title="Chat"
+          />
+        </div>
+      )}
+
+      <ReportDialog
+        open={reportOpen !== null}
+        kind={reportOpen ?? 'bug'}
+        screenshotDataUrl={pendingScreenshot}
+        onSubmit={submitReport}
+        onClose={() => { setReportOpen(null); setPendingScreenshot(undefined); }}
+      />
       {G.pendingChoice && !youOwnChoice && (
         <div style={{
-          position: 'fixed', right: 16, bottom: 16,
+          // Bottom-LEFT so it never overlaps the bottom-right chat panel.
+          position: 'fixed', left: 16, bottom: 16, zIndex: 40,
           padding: '10px 14px', borderRadius: 6,
           background: '#fbf7da', border: `1px solid ${cardBorder}`, color: textColor,
           maxWidth: 360, fontSize: 12,
         }}>
-          Waiting on Player {G.pendingChoice.playerId} to respond.
+          Waiting on Player {displayPid(G.pendingChoice.playerId)} to respond.
         </div>
       )}
     </div>

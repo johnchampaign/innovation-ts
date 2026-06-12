@@ -12,7 +12,7 @@ import './engine/handlers'; // register dogma handlers (side-effect import)
 import { ALL_CARDS, cardById } from './card-data';
 import { startDogma, resumeDogma } from './engine/dogma';
 import {
-  achievementCount, highestTopAge, score, topCard,
+  achievementCount, checkAutoSpecials, highestTopAge, score, topCard,
 } from './engine/mechanics';
 import type {
   InnovationState, PlayerData, Color, ChoiceResponse,
@@ -105,6 +105,10 @@ function syncChoiceStage(G: InnovationState, events: MoveEvents): void {
 }
 
 function spendAction(G: InnovationState, events: MoveEvents): void {
+  // Board-state special achievements (World / Empire / Universe / Wonder)
+  // are auto-claimed after every action per the rulebook. C# does this in
+  // SpecialAchievements.CheckAll on the same trigger.
+  checkAutoSpecials(G);
   G.actionsRemaining -= 1;
   if (G.actionsRemaining <= 0 && !G.pendingChoice) events.endTurn();
 }
@@ -282,9 +286,17 @@ function endIf({ G, ctx }: { G: InnovationState; ctx: Ctx }): InnovationGameOver
   return undefined;
 }
 
+/** Tiebreak per the Innovation rulebook: highest score, then most
+ *  achievements among score-ties. If players still tie after that, the
+ *  game ends in a shared win — the rulebook doesn't go further and adding
+ *  invented tiebreakers (cards-on-board, etc.) muddies the contract. */
 function tiebreakByScore(G: InnovationState, ids: string[]): string[] {
-  const best = Math.max(...ids.map((id) => score(G.players[id])));
-  return ids.filter((id) => score(G.players[id]) === best);
+  const bestScore = Math.max(...ids.map((id) => score(G.players[id])));
+  const scoreTop = ids.filter((id) => score(G.players[id]) === bestScore);
+  if (scoreTop.length === 1) return scoreTop;
+
+  const bestAchv = Math.max(...scoreTop.map((id) => achievementCount(G.players[id])));
+  return scoreTop.filter((id) => achievementCount(G.players[id]) === bestAchv);
 }
 
 // ---------------------------------------------------------------------------

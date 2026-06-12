@@ -5,7 +5,7 @@ import { cardById } from '../card-data';
 import { COLORS } from '../engine/types';
 import type { ChoiceResponse, PendingChoice } from '../engine/types';
 import { CardChip } from './Card';
-import { panelBg, textColor, cardBorder } from './colors';
+import { panelBg, textColor, cardBorder, displayPid } from './colors';
 
 interface Props {
   pc: PendingChoice;
@@ -31,7 +31,7 @@ export function ChoicePrompt({ pc, onSubmit }: Props) {
           display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
           marginBottom: 8, borderBottom: '1px solid rgba(0,0,0,0.12)', paddingBottom: 6,
         }}>
-          <strong style={{ fontSize: 14 }}>Player {pc.playerId}</strong>
+          <strong style={{ fontSize: 14 }}>Player {displayPid(pc.playerId)}</strong>
           <span style={{ fontSize: 11, opacity: 0.7 }}>{pc.kind}</span>
         </header>
         <p style={{ margin: '6px 0 14px', lineHeight: 1.4, fontSize: 13 }}>{pc.prompt}</p>
@@ -81,7 +81,7 @@ function ChoiceBody({ pc, onSubmit }: Props) {
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {pc.options.map((id, i) => (
               <button key={id} onClick={() => onSubmit(id)} style={pickButton()}>
-                Player {pc.playerOptions?.[i] ?? id}
+                Player {displayPid(pc.playerOptions?.[i] ?? String(id))}
               </button>
             ))}
           </div>

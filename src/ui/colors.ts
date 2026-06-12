@@ -57,3 +57,15 @@ export const splayName: Record<Splay, string> = {
   right: 'Right',
   up:    'Up',
 };
+
+/** Internal player ids are 0-indexed strings ('0'..'3') because that's what
+ *  boardgame.io hands us — every state key, every comparison (pid === actor),
+ *  every G.players[id] lookup uses that form. But humans count from 1, so
+ *  ALL user-facing player labels go through this helper. Never display the
+ *  raw id directly. */
+export function displayPid(internalId: string | null | undefined): string {
+  if (internalId == null) return '?';
+  const n = parseInt(internalId, 10);
+  if (Number.isNaN(n)) return internalId;
+  return String(n + 1);
+}

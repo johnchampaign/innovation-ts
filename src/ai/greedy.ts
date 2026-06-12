@@ -207,27 +207,33 @@ function isTotalNoOp(before: BgioState, after: BgioState): boolean {
 }
 
 /** Score the position reached by applying `action` in a cloned state, with
- *  any resulting dogma played out using greedy responses. Catches throws
- *  (invalid moves, defensive shimming) and returns -Infinity so the
- *  candidate is discarded. */
+ *  any resulting dogma played out using greedy responses. Returns a tagged
+ *  result so `pickAction` can hard-filter no-op dogmas before the score
+ *  comparison — relying on a "very negative" no-op score wasn't enough to
+ *  prevent the AI from re-picking the same dead dogma when other options
+ *  also rolled poorly (Quantum Theory with an empty hand was the smoking
+ *  gun: handler returns false, structural state unchanged, score tied at
+ *  the floor with other equally-bad finite scores, and Dogma-X happened to
+ *  win the tie). The explicit isNoOpDogma flag short-circuits that. */
+interface TrialResult { score: number; isNoOpDogma: boolean; }
+
 function tryAction(
   state: BgioState,
   selfId: PlayerId,
   action: InnovationAction,
-): number {
+): TrialResult {
   let after: BgioState;
   try {
     after = A.applyAction(clone(state), action, selfId);
   } catch {
-    return Number.NEGATIVE_INFINITY;
+    return { score: Number.NEGATIVE_INFINITY, isNoOpDogma: false };
   }
   // Run any resulting dogma to completion.
   after = playOutDogma(after, selfId);
-  // No-op penalty: dogma activations that change nothing burn an action.
   if (action.kind === 'dogma' && isTotalNoOp(state, after)) {
-    return Number.NEGATIVE_INFINITY / 2;
+    return { score: Number.NEGATIVE_INFINITY, isNoOpDogma: true };
   }
-  return scoreRelative(after, selfId, 1);
+  return { score: scoreRelative(after, selfId, 1), isNoOpDogma: false };
 }
 
 /** Top-level greedy pick: enumerate legal actions, score each via a 1-ply
@@ -250,13 +256,19 @@ export function pickAction(
   }
   if (legal.length === 1) return legal[0];
 
-  let best = legal[0];
-  let bestScore = Number.NEGATIVE_INFINITY;
-  for (const action of legal) {
-    const s = tryAction(state, selfId, action);
-    if (s > bestScore) { bestScore = s; best = action; }
+  // Score every legal action.
+  const trials = legal.map((a) => ({ action: a, ...tryAction(state, selfId, a) }));
+  // Hard pre-filter: drop no-op dogmas if any non-no-op alternative exists.
+  // Wasting an action on a dogma that changes nothing for anyone is strictly
+  // worse than drawing (the worst Draw can do is exhaust the deck and end
+  // the game, which is already factored into scoreRelative).
+  const nonNoOp = trials.filter((t) => !t.isNoOpDogma);
+  const pool = nonNoOp.length > 0 ? nonNoOp : trials;
+  let best = pool[0];
+  for (const t of pool) {
+    if (t.score > best.score) best = t;
   }
-  return best;
+  return best.action;
 }
 
 // Re-exports for tests + later instrumentation.
