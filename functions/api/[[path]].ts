@@ -47,6 +47,9 @@ function server(env: Env, origin: string) {
     codec: jsonCodec<BgioState>(),
     store: new SupabaseStore(supabase),
     notifier: new NoopNotifier(),
+    // Best-effort play counter: createGame fires an 'online' beacon to the
+    // shared games-hub counter. Never blocks or fails game creation.
+    playBeacon: { appId: 'innovation' },
     gameUrl: (gameId, token) =>
       `${origin}/?game=${encodeURIComponent(gameId)}&token=${encodeURIComponent(token)}`,
   });

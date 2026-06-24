@@ -19,6 +19,7 @@ import { ReportDialog, type Severity } from './ReportDialog';
 import html2canvas from 'html2canvas';
 import { IconBadge } from './Icon';
 import { pickAction } from '../ai/greedy';
+import { recordPlay } from 'digital-boardgame-framework';
 import { pageBg, textColor, cardBorder, displayPid } from './colors';
 
 interface Props {
@@ -30,7 +31,18 @@ interface LogEntry { turn: number; text: string; }
 
 export function Game({ numPlayers, aiSeats }: Props) {
   const ai = aiSeats ?? new Set<string>();
+  // Local play mode for the play counter: any AI seats → 'ai', else 'hotseat'.
+  const playMode: 'ai' | 'hotseat' = ai.size > 0 ? 'ai' : 'hotseat';
   const [state, setState] = useState<BgioState>(() => initialBgioState(numPlayers));
+
+  // Record one local game start when this shell mounts (entering hotseat /
+  // solo-vs-AI from the lobby). Best-effort — recordPlay never throws or
+  // blocks. Empty deps = exactly once on mount; "New game" records its own
+  // start in onNewGame below. (No StrictMode in main.tsx, so this fires once.)
+  useEffect(() => {
+    recordPlay('innovation', playMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [hover, setHover] = useState<DetailTarget>(null);
   const setHoverCardId = (id: number) => setHover({ kind: 'card', id });
   const setHoverSpecial = (name: string) => setHover({ kind: 'special', name });
@@ -163,7 +175,12 @@ export function Game({ numPlayers, aiSeats }: Props) {
   const onDogma = (color: Color) => apply({ kind: 'dogma', color });
   const onAchieve = (age: number) => apply({ kind: 'achieve', age });
   const onResolveChoice = (response: ChoiceResponse) => apply({ kind: 'resolveChoice', response });
-  const onNewGame = () => { setState(initialBgioState(numPlayers)); setLog([{ turn: 0, text: '(setup) New game.' }]); setHover(null); };
+  const onNewGame = () => {
+    setState(initialBgioState(numPlayers));
+    setLog([{ turn: 0, text: '(setup) New game.' }]);
+    setHover(null);
+    recordPlay('innovation', playMode); // a fresh local game = one more play
+  };
 
   const legal = actor !== null ? A.legalActions(state, actor) : [];
   const dogmaColors = new Set<Color>(legal.filter((a) => a.kind === 'dogma').map((a) => (a as { color: Color }).color));

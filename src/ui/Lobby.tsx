@@ -1,6 +1,6 @@
 // Lobby — light theme matching the in-game C# look.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Game as HotseatGame } from './Game';
 import { createGame, type CreateGameResult } from '../online/client';
 import { pageBg, panelBg, textColor, cardBorder, displayPid } from './colors';
@@ -10,6 +10,17 @@ export function Lobby() {
   const [mode, setMode] = useState<'menu' | 'creating' | 'hotseat' | 'solo' | 'invites'>('menu');
   const [result, setResult] = useState<CreateGameResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Total games-played counter from the shared hub. Best-effort: null until
+  // loaded, stays null (hidden) if the fetch fails.
+  const [playCount, setPlayCount] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch('https://games-hub-5vo.pages.dev/stats?game=innovation')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (alive && d && typeof d.count === 'number') setPlayCount(d.count); })
+      .catch(() => { /* counter is decorative — ignore */ });
+    return () => { alive = false; };
+  }, []);
 
   async function onCreate() {
     setError(null); setMode('creating');
@@ -34,9 +45,15 @@ export function Lobby() {
     <Page>
       <div style={panelStyle()}>
         <h1 style={{ margin: '0 0 4px', fontSize: 28, fontWeight: 700 }}>Innovation</h1>
-        <p style={{ margin: '0 0 22px', opacity: 0.7, fontSize: 13 }}>
+        <p style={{ margin: '0 0 4px', opacity: 0.7, fontSize: 13 }}>
           TypeScript port of the C# desktop game. Async multiplayer, hotseat, or solo vs AI.
         </p>
+        {playCount !== null && (
+          <p style={{ margin: '0 0 22px', opacity: 0.6, fontSize: 12 }}>
+            🎲 {playCount.toLocaleString()} game{playCount === 1 ? '' : 's'} played
+          </p>
+        )}
+        {playCount === null && <div style={{ marginBottom: 22 }} />}
 
         <section style={{ marginBottom: 22 }}>
           <h2 style={h2()}>Play online</h2>
