@@ -2,6 +2,7 @@
   "name": "innovation-ts",
   "version": "0.0.1",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "TypeScript port of Innovation: boardgame.io engine wrapped by the digital-boardgame-framework (web + async multiplayer). Ported from the Innovation.Core C# engine.",
   "scripts": {
