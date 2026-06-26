@@ -30,10 +30,14 @@ export async function createGame(numPlayers: number): Promise<CreateGameResult> 
   return readJson<CreateGameResult>(res);
 }
 
-/** Build a GameClientApi for a specific (gameId, token). useGame polls it. */
+/** Build a GameClientApi for a specific (gameId, token). useGame polls it.
+ *  `getIdentityToken` (ranked play) supplies the player's current hub identity
+ *  token; when present it rides along on each submit so the server can attribute
+ *  the seat (best-effort, idempotent — turns are sequential). */
 export function makeClient(
   gameId: string,
   token: string,
+  getIdentityToken?: () => string | undefined,
 ): GameClientApi<BgioState, InnovationAction> {
   const base = `/api/games/${encodeURIComponent(gameId)}`;
   const q = `?token=${encodeURIComponent(token)}`;
@@ -46,7 +50,7 @@ export function makeClient(
       return readJson(await window.fetch(`${base}/submit${q}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(action),
+        body: JSON.stringify({ action, identityToken: getIdentityToken?.() }),
       }));
     },
     async legalActions() {
@@ -60,6 +64,18 @@ export function makeClient(
       }));
     },
   };
+}
+
+/** Attach the player's hub identity to their seat (ranked). Best-effort —
+ *  ranked attribution never blocks play, so any failure is swallowed. */
+export async function claimSeat(gameId: string, token: string, identityToken: string): Promise<void> {
+  try {
+    await fetch(`/api/games/${encodeURIComponent(gameId)}/claim?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ identityToken }),
+    });
+  } catch { /* ranked attribution is optional */ }
 }
 
 /** Build a MessagingClientApi for in-game chat over the /chat routes.

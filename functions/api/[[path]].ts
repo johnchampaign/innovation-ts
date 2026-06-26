@@ -16,7 +16,7 @@
 // requires `fs` (Node-only).
 
 import { createClient } from '@supabase/supabase-js';
-import { GameServer, SupabaseStore, NoopNotifier } from 'digital-boardgame-framework/server';
+import { GameServer, SupabaseStore, NoopNotifier, verifyIdentityToken, type Jwks } from 'digital-boardgame-framework/server';
 import { jsonCodec } from 'digital-boardgame-framework';
 import { innovationAdapter, initialBgioState, type BgioState, type InnovationAction, type PlayerId } from '../../src/adapter/innovationAdapter';
 
@@ -34,9 +34,23 @@ interface Env {
   GITHUB_TOKEN?: string;
   /** owner/repo to file reports against. Defaults to johnchampaign/innovation-ts-reports. */
   REPORTS_REPO?: string;
+  /** Shared secret matching the hub's RATINGS_INGEST_KEY (enables ranked play). */
+  RATINGS_INGEST_KEY?: string;
 }
 
 interface RouteCtx { request: Request; env: Env; }
+
+// Cached hub JWKS for verifying ranked-play identity tokens (refreshed hourly).
+const HUB = 'https://games-hub-5vo.pages.dev';
+let _jwks: Jwks | undefined;
+let _jwksAt = 0;
+async function getJwks(): Promise<Jwks> {
+  if (!_jwks || Date.now() - _jwksAt > 3_600_000) {
+    _jwks = (await (await fetch(`${HUB}/id/jwks`)).json()) as Jwks;
+    _jwksAt = Date.now();
+  }
+  return _jwks;
+}
 
 function server(env: Env, origin: string) {
   const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
@@ -52,6 +66,11 @@ function server(env: Env, origin: string) {
     playBeacon: { appId: 'innovation' },
     gameUrl: (gameId, token) =>
       `${origin}/?game=${encodeURIComponent(gameId)}&token=${encodeURIComponent(token)}`,
+    // Ranked play: verify hub identity tokens (claimSeat) + auto-report results.
+    verifyIdentity: async (t) => verifyIdentityToken(t, await getJwks()),
+    ...(env.RATINGS_INGEST_KEY
+      ? { ratings: { game: 'innovation', ingestKey: env.RATINGS_INGEST_KEY } }
+      : {}),
   });
 }
 
@@ -213,10 +232,27 @@ export const onRequest = async ({ request, env }: RouteCtx): Promise<Response> =
       if (rest === '/legal' && request.method === 'GET') {
         return json(await srv.legalActions(gameId, token));
       }
-      // POST /games/:id/submit
+      // POST /games/:id/submit. Body is either the bare action (legacy) or
+      // { action, identityToken } (ranked). When an identityToken rides along,
+      // attribute this seat from it first (best-effort; never blocks the move).
       if (rest === '/submit' && request.method === 'POST') {
-        const action = await readJson<InnovationAction>(request);
+        const body = await readJson<InnovationAction | { action: InnovationAction; identityToken?: string }>(request);
+        const hasWrapper = body && typeof body === 'object' && 'action' in body;
+        const action = (hasWrapper ? (body as { action: InnovationAction }).action : body) as InnovationAction;
+        const identityToken = hasWrapper ? (body as { identityToken?: string }).identityToken : undefined;
+        if (typeof identityToken === 'string' && identityToken) {
+          try { await srv.claimSeat(gameId, token, identityToken); } catch { /* optional */ }
+        }
         return json(await srv.submit(gameId, token, action));
+      }
+      // POST /games/:id/claim — attach a hub identity to this seat on join.
+      if (rest === '/claim' && request.method === 'POST') {
+        const body = await readJson<{ identityToken?: string }>(request);
+        if (typeof body?.identityToken !== 'string' || !body.identityToken) {
+          return bad('identityToken required', 422);
+        }
+        const v = await srv.claimSeat(gameId, token, body.identityToken);
+        return json({ ok: true, playerId: v.playerId });
       }
       // POST /games/:id/report
       if (rest === '/report' && request.method === 'POST') {

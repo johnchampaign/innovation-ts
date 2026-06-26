@@ -2,9 +2,9 @@
 // comes from the framework's useGame hook polling the Pages Functions API.
 // View is already per-player-redacted by the server.
 
-import { useMemo, useState } from 'react';
-import { useGame, ChatPanel } from 'digital-boardgame-framework/client';
-import { makeClient, makeMessagingClient } from '../online/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useGame, ChatPanel, useIdentity, SignInBar } from 'digital-boardgame-framework/client';
+import { makeClient, makeMessagingClient, claimSeat } from '../online/client';
 import { ReportDialog, type Severity } from './ReportDialog';
 import html2canvas from 'html2canvas';
 import { ALL_CARDS } from '../card-data';
@@ -18,8 +18,18 @@ import { pageBg, textColor, cardBorder, iconGlyph, displayPid } from './colors';
 interface Props { gameId: string; token: string; }
 
 export function OnlineGame({ gameId, token }: Props) {
-  const client = useMemo(() => makeClient(gameId, token), [gameId, token]);
+  // Ranked identity (anon or signed-in). Kept in a ref so each move carries the
+  // current token without re-creating the client on every identity change.
+  const { identity } = useIdentity();
+  const idTokRef = useRef<string | undefined>(undefined);
+  idTokRef.current = identity?.token;
+  const client = useMemo(() => makeClient(gameId, token, () => idTokRef.current), [gameId, token]);
   const messagingClient = useMemo(() => makeMessagingClient(gameId, token), [gameId, token]);
+  // Bind this client's identity to its seat on join (per-move attribution above
+  // also covers it, but claiming on join attributes the seat before any move).
+  useEffect(() => {
+    if (identity?.token) void claimSeat(gameId, token, identity.token);
+  }, [gameId, token, identity?.token]);
   const game = useGame(client, { pollMs: 2000, pauseWhenHidden: true });
   const [reportOpen, setReportOpen] = useState<null | 'bug' | 'logs'>(null);
   const [pendingScreenshot, setPendingScreenshot] = useState<string | undefined>(undefined);
@@ -165,6 +175,9 @@ export function OnlineGame({ gameId, token }: Props) {
             <div style={{ marginTop: 8 }}>
               <a href="/" style={linkButton()}>← Lobby</a>
             </div>
+            <div style={{ marginTop: 8 }}>
+              <SignInBar leaderboardHref="https://games-hub-5vo.pages.dev/leaderboard?game=innovation" />
+            </div>
           </div>
 
           {/* Icon totals across all visible players. */}
@@ -227,6 +240,15 @@ export function OnlineGame({ gameId, token }: Props) {
                 Game over — {gameover.winners.length === 1 ? `Player ${displayPid(gameover.winners[0])} wins` : `tied: ${gameover.winners.map(displayPid).join(', ')}`}
               </div>
               <div style={{ fontSize: 13, opacity: 0.8 }}>{String(gameover.reason)}</div>
+              {game.ranked && (
+                <div style={{ fontSize: 12, marginTop: 6, fontWeight: 600 }}>
+                  {game.ranked.recorded
+                    ? '✓ Recorded to the leaderboard.'
+                    : game.ranked.reason === 'one-player'
+                      ? 'Not ranked — both seats were the same player.'
+                      : 'Not ranked.'}
+                </div>
+              )}
               <a href="/" style={{ ...linkButton(), marginTop: 8, display: 'inline-block' }}>← Lobby</a>
             </div>
           )}
