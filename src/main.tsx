@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { SplashScreen } from 'digital-boardgame-framework/client';
 import { Lobby } from './ui/Lobby';
 import { OnlineGame } from './ui/OnlineGame';
 
@@ -14,4 +15,13 @@ function App() {
   return <Lobby />;
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+// Startup interstitial. Self-managing (shows once per browser session) and
+// renders its own overlay above the app, hiding on Continue. The default
+// middle is a live "more games" list pulled from the hub's games.json, so
+// Innovation cross-promos the other games and stays current automatically.
+createRoot(document.getElementById('root')!).render(
+  <>
+    <SplashScreen title="Innovation" appId="innovation" />
+    <App />
+  </>,
+);
