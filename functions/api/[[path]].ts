@@ -57,6 +57,7 @@ function server(env: Env, origin: string) {
     auth: { persistSession: false },
   });
   return new GameServer<BgioState, InnovationAction, PlayerId>({
+    snapshotHistory: 20,   // cap per-game snapshot history (framework >=0.32)
     adapter: innovationAdapter,
     codec: jsonCodec<BgioState>(),
     store: new SupabaseStore(supabase),
