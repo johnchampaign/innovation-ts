@@ -20,12 +20,17 @@ async function readJson<T>(res: Response): Promise<T> {
   return await res.json() as T;
 }
 
-/** Lobby-side: POST /api/games to create. Not part of GameClientApi (no token yet). */
-export async function createGame(numPlayers: number): Promise<CreateGameResult> {
+/** Lobby-side: POST /api/games to create. Not part of GameClientApi (no token yet).
+ *  `ai` maps a seat id → difficulty key (e.g. { '1': 'standard' }) for a
+ *  server-driven, rated AI opponent. */
+export async function createGame(
+  numPlayers: number,
+  ai?: Partial<Record<string, string>>,
+): Promise<CreateGameResult> {
   const res = await fetch('/api/games', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ numPlayers }),
+    body: JSON.stringify({ numPlayers, ...(ai ? { ai } : {}) }),
   });
   return readJson<CreateGameResult>(res);
 }

@@ -19,6 +19,7 @@ import { createClient } from '@supabase/supabase-js';
 import { GameServer, SupabaseStore, NoopNotifier, verifyIdentityToken, type Jwks } from 'digital-boardgame-framework/server';
 import { jsonCodec } from 'digital-boardgame-framework';
 import { innovationAdapter, initialBgioState, type BgioState, type InnovationAction, type PlayerId } from '../../src/adapter/innovationAdapter';
+import { innovationAiControllers } from '../../src/ai/controller';
 
 interface Env {
   SUPABASE_URL: string;
@@ -61,6 +62,7 @@ function server(env: Env, origin: string) {
     adapter: innovationAdapter,
     codec: jsonCodec<BgioState>(),
     store: new SupabaseStore(supabase),
+    aiControllers: innovationAiControllers,   // server-driven AI seats (rated)
     notifier: new NoopNotifier(),
     // Best-effort play counter: createGame fires an 'online' beacon to the
     // shared games-hub counter. Never blocks or fails game creation.
@@ -204,7 +206,7 @@ export const onRequest = async ({ request, env }: RouteCtx): Promise<Response> =
 
     // POST /api/games — create
     if (path === '/games' && request.method === 'POST') {
-      const body = await readJson<{ numPlayers: number }>(request);
+      const body = await readJson<{ numPlayers: number; ai?: Partial<Record<PlayerId, string>> }>(request);
       const numPlayers = Number(body.numPlayers);
       if (!Number.isInteger(numPlayers) || numPlayers < 1 || numPlayers > 4) {
         return bad('numPlayers must be 1..4');
@@ -214,6 +216,9 @@ export const onRequest = async ({ request, env }: RouteCtx): Promise<Response> =
       const out = await server(env, originOf(env, request)).createGame({
         initialState,
         players,
+        // Server-driven AI seats (rated leaderboard opponents). Each maps a
+        // seat id → difficulty key ('standard'); the server drives those seats.
+        ...(body.ai ? { ai: body.ai } : {}),
       });
       return json(out);
     }

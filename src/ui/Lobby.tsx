@@ -30,6 +30,18 @@ export function Lobby() {
     } catch (e) { setError((e as Error)?.message ?? String(e)); setMode('menu'); }
   }
 
+  // Online vs a server-driven AI: a 2-player game, seat 0 = human, seat 1 = a
+  // rated 'standard' AI the server drives. Jump straight into the human seat.
+  async function onCreateVsAi() {
+    setError(null); setMode('creating');
+    try {
+      const r = await createGame(2, { '1': 'standard' });
+      const human = r.invites['0'];
+      if (human) { window.location.href = human; return; }
+      setResult(r); setMode('invites');
+    } catch (e) { setError((e as Error)?.message ?? String(e)); setMode('menu'); }
+  }
+
   if (mode === 'hotseat') return <HotseatGame numPlayers={numPlayers} />;
   if (mode === 'solo') {
     const aiSeats = new Set<string>(
@@ -68,7 +80,13 @@ export function Lobby() {
             <button onClick={onCreate} disabled={mode === 'creating'} style={primaryButton(mode === 'creating')}>
               {mode === 'creating' ? 'Creating…' : 'Create online game'}
             </button>
+            <button onClick={onCreateVsAi} disabled={mode === 'creating'} style={secondaryButton()}>
+              vs AI (ranked)
+            </button>
           </div>
+          <p style={{ ...muted(), marginTop: 8 }}>
+            <strong>vs AI</strong> plays a rated leaderboard opponent online — sign in first so your result counts.
+          </p>
           {error && (
             <div style={{ marginTop: 10, color: '#9c2c2c', fontSize: 12 }}>
               Couldn’t reach the server: {error}.
