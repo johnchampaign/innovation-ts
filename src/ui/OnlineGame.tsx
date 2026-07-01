@@ -7,14 +7,13 @@ import { useGame, ChatPanel, useIdentity, SignInBar } from 'digital-boardgame-fr
 import { makeClient, makeMessagingClient, claimSeat } from '../online/client';
 import { ReportDialog, type Severity } from './ReportDialog';
 import html2canvas from 'html2canvas';
-import { ALL_CARDS } from '../card-data';
 import { COLORS } from '../engine/types';
-import type { Color, ChoiceResponse, IconName } from '../engine/types';
-import { countIcons } from '../engine/icons';
+import type { Color, ChoiceResponse } from '../engine/types';
 import { score, highestTopAge } from '../engine/mechanics';
 import { YourBoard, OpponentBoard, Hand, ScorePileStrip, panel, SectionHeader } from './Board';
 import { ChoicePrompt } from './Choice';
-import { pageBg, textColor, cardBorder, iconGlyph, displayPid } from './colors';
+import { IconTotalsPanel, AchievementsPanel, CardsRemainingPanel } from './Panels';
+import { pageBg, textColor, cardBorder, displayPid } from './colors';
 
 interface Props { gameId: string; token: string; }
 
@@ -201,7 +200,7 @@ export function OnlineGame({ gameId, token }: Props) {
           </div>
 
           {/* Icon totals across all visible players. */}
-          <IconTotalsPanel G={G} />
+          <IconTotalsPanel G={G} viewerId={you ?? '0'} />
           <AchievementsPanel G={G} achievableAges={achievableAges} onAchieve={onAchieve} canAchieve={yourTurn && !inDogma} />
           <CardsRemainingPanel G={G} />
         </aside>
@@ -328,106 +327,6 @@ function Centered({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Sidebar panels — same as Game.tsx; we inline a slim version here to keep
-// OnlineGame self-contained. Could be extracted to a shared file if either
-// shell grows.
-function IconTotalsPanel({ G }: { G: import('../adapter/innovationAdapter').BgioState['G'] }) {
-  const playerIds = Object.keys(G.players);
-  const icons: IconName[] = ['leaf', 'castle', 'lightbulb', 'crown', 'factory', 'clock'];
-  return (
-    <div style={panel()}>
-      <SectionHeader text="Icon Totals" />
-      <table style={{ marginTop: 6, fontSize: 11, borderCollapse: 'collapse', width: '100%' }}>
-        <thead>
-          <tr>
-            <th style={th()}></th>
-            {icons.map((i) => <th key={i} style={th()}>{iconGlyph[i]}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {playerIds.map((pid) => (
-            <tr key={pid}>
-              <td style={{ ...td(), fontWeight: 600 }}>P{pid}</td>
-              {icons.map((i) => (
-                <td key={i} style={td()}>{countIcons(G.players[pid], i)}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function AchievementsPanel({
-  G, achievableAges, onAchieve, canAchieve,
-}: {
-  G: import('../adapter/innovationAdapter').BgioState['G'];
-  achievableAges: number[];
-  onAchieve: (age: number) => void;
-  canAchieve: boolean;
-}) {
-  const claimable = new Set(achievableAges);
-  return (
-    <div style={panel()}>
-      <SectionHeader text="Achievements Remaining" />
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 6 }}>
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((a) => {
-          const available = G.availableAgeAchievements.includes(a);
-          const can = canAchieve && claimable.has(a);
-          return (
-            <button
-              key={a}
-              onClick={can ? () => onAchieve(a) : undefined}
-              disabled={!can}
-              style={{
-                width: 26, height: 26, padding: 0,
-                borderRadius: 13,
-                background: available ? (can ? '#d4a017' : '#e8d99a') : '#cfc6a3',
-                color: available ? textColor : '#9a917a',
-                border: `1px solid ${cardBorder}`,
-                fontWeight: 700, fontSize: 12,
-                cursor: can ? 'pointer' : 'default',
-              }}
-            >{a}</button>
-          );
-        })}
-      </div>
-      <div style={{ marginTop: 8, fontSize: 11, opacity: 0.8 }}>
-        {G.availableSpecialAchievements.length === 0
-          ? '(all specials claimed)'
-          : G.availableSpecialAchievements.join(' · ')}
-      </div>
-    </div>
-  );
-}
-
-function CardsRemainingPanel({ G }: { G: import('../adapter/innovationAdapter').BgioState['G'] }) {
-  return (
-    <div style={panel()}>
-      <SectionHeader text="Cards Remaining" />
-      <div style={{
-        marginTop: 6, display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4,
-      }}>
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((a) => (
-          <div key={a} style={{
-            fontSize: 11, textAlign: 'center', padding: '4px 2px', borderRadius: 3,
-            background: '#e8e3c8', border: `1px solid ${cardBorder}`,
-          }}>
-            <div style={{ opacity: 0.7 }}>{a})</div>
-            <div style={{ fontWeight: 700 }}>{G.decks[a].length}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{ marginTop: 6, fontSize: 10, opacity: 0.6 }}>
-        Total {ALL_CARDS.length} cards in game.
-      </div>
-    </div>
-  );
-}
-
-function th(): React.CSSProperties { return { textAlign: 'center', fontWeight: 600, padding: '2px 4px', borderBottom: `1px solid ${cardBorder}` }; }
-function td(): React.CSSProperties { return { textAlign: 'center', padding: '2px 4px' }; }
 function actionButton(disabled?: boolean): React.CSSProperties {
   return {
     padding: '6px 14px', borderRadius: 4, border: `1px solid ${cardBorder}`,
@@ -445,6 +344,3 @@ function linkButton(): React.CSSProperties {
     textDecoration: 'none', display: 'inline-block',
   };
 }
-
-// Suppress unused import warnings for cross-file types.
-void COLORS;
