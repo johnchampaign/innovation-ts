@@ -54,23 +54,62 @@ export function OnlineGame({ gameId, token }: Props) {
 
   // Client-side game log. Unlike hotseat (where every action is applied
   // locally so we see it), the online view only ever holds a redacted server
-  // snapshot — so we log (a) our OWN actions, in full detail, at submit time,
-  // and (b) turn transitions detected from the polled view. The opponent's /
-  // AI's specific cards stay hidden by redaction, so their turns show as a
-  // marker line rather than a play-by-play.
+  // snapshot. Two sources feed the log:
+  //   (a) our OWN actions, in full detail, at submit time (logAndSubmit); and
+  //   (b) the OPPONENT's moves, reconstructed by diffing their visible state
+  //       between snapshots.
+  // (b) matters because the server drives AI seats synchronously inside our
+  // submit and returns OUR next-turn view — the client never sees the AI as
+  // `currentPlayer`, so without a diff the AI's whole turn is invisible and
+  // looks "skipped". Redaction hides the opponent's card identities, so we log
+  // net deltas (melds N / scores N / draws N / claims an achievement), not a
+  // per-card play-by-play.
   const [log, setLog] = useState<LogEntry[]>([{ turn: 0, text: '(online) Game started.' }]);
   const pushLog = (text: string, turn: number) =>
     setLog((L) => [...L, { turn, text }].slice(-500));
-  // Emit a "Player N's turn" marker whenever the active seat changes.
-  const lastTurnRef = useRef<string>('');
+
+  // Per-opponent snapshot of visible counts, so we can diff across renders.
+  const prevOppRef = useRef<Record<string, { board: number; score: number; hand: number; achv: number }>>({});
+  // Signature of every opponent's visible state (+ turn) — changes exactly when
+  // there's something new to log, so the effect doesn't fire on every poll.
+  const oppSig = game.view
+    ? Object.keys(game.view.G.players)
+        .filter((pid) => pid !== game.you)
+        .map((pid) => {
+          const p = game.view!.G.players[pid];
+          const board = COLORS.reduce((n, c) => n + p.piles[c].cards.length, 0);
+          const achv = p.ageAchievements.length + p.specialAchievements.length;
+          return `${pid}:${board}:${p.scorePile.length}:${p.hand.length}:${achv}`;
+        })
+        .join('|') + `#${game.view.ctx.turn}`
+    : '';
   useEffect(() => {
-    if (!game.view) return;
-    const { currentPlayer, turn } = game.view.ctx;
-    const key = `${turn}:${currentPlayer}`;
-    if (key === lastTurnRef.current) return;
-    lastTurnRef.current = key;
-    pushLog(`— Player ${displayPid(currentPlayer)}'s turn (turn ${turn}).`, turn);
-  }, [game.view?.ctx.currentPlayer, game.view?.ctx.turn]);
+    const v = game.view;
+    if (!v) return;
+    const turn = v.ctx.turn;
+    for (const pid of Object.keys(v.G.players)) {
+      if (pid === game.you) continue;
+      const p = v.G.players[pid];
+      const cur = {
+        board: COLORS.reduce((n, c) => n + p.piles[c].cards.length, 0),
+        score: p.scorePile.length,
+        hand: p.hand.length,
+        achv: p.ageAchievements.length + p.specialAchievements.length,
+      };
+      const prev = prevOppRef.current[pid];
+      if (prev) {
+        const parts: string[] = [];
+        if (cur.board > prev.board) parts.push(`melds ${cur.board - prev.board} card${cur.board - prev.board === 1 ? '' : 's'}`);
+        if (cur.board < prev.board) parts.push(`clears ${prev.board - cur.board} card${prev.board - cur.board === 1 ? '' : 's'} off board`);
+        if (cur.score > prev.score) parts.push(`scores ${cur.score - prev.score}`);
+        if (cur.hand > prev.hand) parts.push(`draws ${cur.hand - prev.hand}`);
+        if (cur.achv > prev.achv) parts.push(`claims ${cur.achv - prev.achv} achievement${cur.achv - prev.achv === 1 ? '' : 's'}`);
+        if (parts.length) pushLog(`Player ${displayPid(pid)} ${parts.join(', ')}.`, turn);
+      }
+      prevOppRef.current[pid] = cur;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oppSig]);
 
   async function openReport(kind: 'bug' | 'logs') {
     // Upload Logs doesn't show attachment toggles — skip the screenshot.
