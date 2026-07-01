@@ -12,7 +12,9 @@ import type { Color, ChoiceResponse } from '../engine/types';
 import { score, highestTopAge } from '../engine/mechanics';
 import { YourBoard, OpponentBoard, Hand, ScorePileStrip, panel, SectionHeader } from './Board';
 import { ChoicePrompt } from './Choice';
+import { DetailCard, type DetailTarget } from './DetailCard';
 import { IconTotalsPanel, AchievementsPanel, CardsRemainingPanel } from './Panels';
+import { GameLogPanel, describeAction, type LogEntry } from './GameLog';
 import { pageBg, textColor, cardBorder, displayPid } from './colors';
 
 interface Props { gameId: string; token: string; }
@@ -40,6 +42,35 @@ export function OnlineGame({ gameId, token }: Props) {
   const game = useGame(client, { pollMs: 2000, pauseWhenHidden: true, trackLegalActions: false });
   const [reportOpen, setReportOpen] = useState<null | 'bug' | 'logs'>(null);
   const [pendingScreenshot, setPendingScreenshot] = useState<string | undefined>(undefined);
+
+  // DetailCard hover target (matches the hotseat shell). Hovering any card /
+  // pile / special shows it in the top-strip DetailCard.
+  const [hover, setHover] = useState<DetailTarget>(null);
+  const setHoverCardId = (id: number) => setHover({ kind: 'card', id });
+  const setHoverSpecial = (name: string) => setHover({ kind: 'special', name });
+  const setHoverPile = (label: string, ages: number[]) => setHover({ kind: 'card-backs', label, ages });
+  const setHoverAchievements = (label: string, ages: number[], specials: string[]) =>
+    setHover({ kind: 'achievements', label, ages, specials });
+
+  // Client-side game log. Unlike hotseat (where every action is applied
+  // locally so we see it), the online view only ever holds a redacted server
+  // snapshot — so we log (a) our OWN actions, in full detail, at submit time,
+  // and (b) turn transitions detected from the polled view. The opponent's /
+  // AI's specific cards stay hidden by redaction, so their turns show as a
+  // marker line rather than a play-by-play.
+  const [log, setLog] = useState<LogEntry[]>([{ turn: 0, text: '(online) Game started.' }]);
+  const pushLog = (text: string, turn: number) =>
+    setLog((L) => [...L, { turn, text }].slice(-500));
+  // Emit a "Player N's turn" marker whenever the active seat changes.
+  const lastTurnRef = useRef<string>('');
+  useEffect(() => {
+    if (!game.view) return;
+    const { currentPlayer, turn } = game.view.ctx;
+    const key = `${turn}:${currentPlayer}`;
+    if (key === lastTurnRef.current) return;
+    lastTurnRef.current = key;
+    pushLog(`— Player ${displayPid(currentPlayer)}'s turn (turn ${turn}).`, turn);
+  }, [game.view?.ctx.currentPlayer, game.view?.ctx.turn]);
 
   async function openReport(kind: 'bug' | 'logs') {
     // Upload Logs doesn't show attachment toggles — skip the screenshot.
@@ -122,10 +153,19 @@ export function OnlineGame({ gameId, token }: Props) {
 
   const submit = (action: Parameters<typeof game.submit>[0]) =>
     game.submit(action).catch((e) => console.error('submit', e));
-  const onDraw = () => submit({ kind: 'draw' });
-  const onMeld = (handIndex: number) => submit({ kind: 'meld', handIndex });
-  const onDogma = (color: Color) => submit({ kind: 'dogma', color });
-  const onAchieve = (age: number) => submit({ kind: 'achieve', age });
+  // Log our OWN action (full detail — we can see our own cards) using the
+  // current view as the pre-action state, then submit it.
+  const logAndSubmit = (action: Parameters<typeof game.submit>[0]) => {
+    if (you !== null) {
+      const line = describeAction(action, you, G);
+      if (line) pushLog(line, ctx.turn);
+    }
+    return submit(action);
+  };
+  const onDraw = () => logAndSubmit({ kind: 'draw' });
+  const onMeld = (handIndex: number) => logAndSubmit({ kind: 'meld', handIndex });
+  const onDogma = (color: Color) => logAndSubmit({ kind: 'dogma', color });
+  const onAchieve = (age: number) => logAndSubmit({ kind: 'achieve', age });
   const onResolveChoice = (response: ChoiceResponse) => submit({ kind: 'resolveChoice', response });
 
   // Affordances derived from the view (mirrors innovationAdapter.enumerateLegal),
@@ -154,54 +194,86 @@ export function OnlineGame({ gameId, token }: Props) {
   // shows no panel.
   const humanSeatCount = Object.keys(G.players).length;
 
+  // What fills the DetailCard slot: an explicit hover, else a representative
+  // card from your own hand/board so the panel is never empty. Plain const
+  // (not useMemo) because it sits past the early returns above.
+  let detailTarget: DetailTarget = hover;
+  if (!detailTarget && me) {
+    if (me.hand.length > 0 && me.hand[0] >= 0) {
+      detailTarget = { kind: 'card', id: me.hand[0] };
+    } else {
+      for (const c of (['yellow', 'red', 'purple', 'blue', 'green'] as Color[])) {
+        const top = me.piles[c].cards[0];
+        if (top !== undefined && top >= 0) { detailTarget = { kind: 'card', id: top }; break; }
+      }
+    }
+  }
+
   return (
     <div style={{
       minHeight: '100vh', background: pageBg, color: textColor,
       fontFamily: '"Segoe UI", system-ui, sans-serif',
       padding: '10px 14px',
     }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 10 }}>
-        <aside style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={panel()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
-              <h1 style={{
-                margin: '0 0 4px', fontSize: 20, fontWeight: 700,
-              }}>Innovation</h1>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button onClick={() => openReport('bug')} style={{
-                  padding: '2px 8px', borderRadius: 3,
-                  border: `1px solid ${cardBorder}`, background: '#e8e3c8',
-                  color: textColor, cursor: 'pointer', fontSize: 10, fontWeight: 600,
-                }} title="Report a problem">Report</button>
-                <button onClick={() => openReport('logs')} style={{
-                  padding: '2px 8px', borderRadius: 3,
-                  border: `1px solid ${cardBorder}`, background: '#e8e3c8',
-                  color: textColor, cursor: 'pointer', fontSize: 10, fontWeight: 600,
-                }} title="Upload current log + state to the dev">Upload logs</button>
-              </div>
+      {/* ============================= TOP STRIP ============================= */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: '340px 1fr 380px', gap: 10,
+        marginBottom: 10,
+      }}>
+        <DetailCard target={detailTarget} />
+        <div style={{
+          ...panel(),
+          display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+          minHeight: 200, background: '#fbf7da',
+        }}>
+          <div>
+            <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 2 }}>Turn {ctx.turn}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: textColor }}>
+              {gameover
+                ? `Game Over — ${gameover.winners.length === 1 ? `Player ${displayPid(gameover.winners[0])} wins` : `tied: ${gameover.winners.map(displayPid).join(', ')}`}`
+                : `Current Player: ${displayPid(ctx.currentPlayer)}`}
             </div>
-            <div style={{ fontSize: 12 }}>
-              Turn <strong>{ctx.turn}</strong>{' · You are '}<strong>P{displayPid(you)}</strong>
-              {' · Active '}<strong>{displayPid(ctx.currentPlayer)}</strong>
-              <div style={{ marginTop: 2, color: yourTurn ? '#3a6f23' : '#9c5a18' }}>
-                {yourTurn ? 'Your turn' : 'Waiting…'}
-              </div>
-              <div style={{ marginTop: 2 }}>Actions left <strong>{G.actionsRemaining}</strong></div>
+            <div style={{ marginTop: 6, fontSize: 13, color: textColor }}>
+              You are <strong>P{displayPid(you)}</strong>
+              {' · '}
+              <span style={{ color: yourTurn ? '#3a6f23' : '#9c5a18' }}>
+                {gameover ? 'Game over' : yourTurn
+                  ? `Your turn — ${G.actionsRemaining} action(s) left.${inDogma ? ' Resolve the prompt below.' : ''}`
+                  : `Waiting on Player ${displayPid(ctx.currentPlayer)} — ${G.actionsRemaining} action(s) left.`}
+              </span>
               {achievableAges.length > 0 && yourTurn && (
-                <div style={{ marginTop: 2 }}>Can claim age {achievableAges.join(',')}</div>
+                <div style={{ marginTop: 2 }}>Can claim age {achievableAges.join(', ')}.</div>
               )}
             </div>
-            <div style={{ marginTop: 8 }}>
-              <a href="/" style={linkButton()}>← Lobby</a>
-            </div>
-            <div style={{ marginTop: 8 }}>
-              <SignInBar leaderboardHref="https://games-hub-5vo.pages.dev/leaderboard?game=innovation" />
-            </div>
           </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8, flexWrap: 'wrap' }}>
+            <a href="/" style={linkButton()}>← Lobby</a>
+            <SignInBar leaderboardHref="https://games-hub-5vo.pages.dev/leaderboard?game=innovation" />
+          </div>
+        </div>
+        <GameLogPanel
+          log={log}
+          onReport={() => openReport('bug')}
+          onUploadLogs={() => openReport('logs')}
+        />
+      </div>
 
-          {/* Icon totals across all visible players. */}
-          <IconTotalsPanel G={G} viewerId={you ?? '0'} />
-          <AchievementsPanel G={G} achievableAges={achievableAges} onAchieve={onAchieve} canAchieve={yourTurn && !inDogma} />
+      {/* ============================= MAIN ROW ============================= */}
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 10 }}>
+        <aside style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <IconTotalsPanel
+            G={G}
+            viewerId={you ?? '0'}
+            onHoverAchievements={setHoverAchievements}
+            onHoverEnd={() => setHover(null)}
+          />
+          <AchievementsPanel
+            G={G}
+            achievableAges={achievableAges}
+            onAchieve={onAchieve}
+            canAchieve={yourTurn && !inDogma}
+            onHoverSpecial={setHoverSpecial}
+          />
           <CardsRemainingPanel G={G} />
         </aside>
 
@@ -212,6 +284,7 @@ export function OnlineGame({ gameId, token }: Props) {
               playerId={you ?? '0'}
               onActivateDogma={yourTurn && !inDogma ? onDogma : undefined}
               dogmaColors={yourTurn && !inDogma ? dogmaColors : undefined}
+              onHoverCard={setHoverCardId}
             />
           </section>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -222,7 +295,7 @@ export function OnlineGame({ gameId, token }: Props) {
                 </span>
               } />
               <div style={{ marginTop: 6 }}>
-                <Hand cards={you !== null ? G.players[you].hand : []} onMeld={yourTurn && !inDogma ? onMeld : undefined} />
+                <Hand cards={you !== null ? G.players[you].hand : []} onMeld={yourTurn && !inDogma ? onMeld : undefined} onHoverCard={setHoverCardId} />
               </div>
               <div style={{
                 display: 'flex', gap: 8, marginTop: 10, paddingTop: 8,
@@ -241,13 +314,21 @@ export function OnlineGame({ gameId, token }: Props) {
                 </span>
               } />
               <div style={{ marginTop: 6 }}>
-                <ScorePileStrip cards={you !== null ? G.players[you].scorePile : []} />
+                <ScorePileStrip cards={you !== null ? G.players[you].scorePile : []} onHoverCard={setHoverCardId} />
               </div>
             </section>
           </div>
 
           {opponents.map((pid) => (
-            <OpponentBoard key={pid} G={G} playerId={pid} label={`Opponent — Player ${displayPid(pid)}${pid === ctx.currentPlayer ? ' (turn)' : ''}`} />
+            <OpponentBoard
+              key={pid}
+              G={G}
+              playerId={pid}
+              label={`Opponent — Player ${displayPid(pid)}${pid === ctx.currentPlayer ? ' (turn)' : ''}`}
+              onHoverCard={setHoverCardId}
+              onHoverPile={setHoverPile}
+              onHoverEnd={() => setHover(null)}
+            />
           ))}
 
           {gameover && (

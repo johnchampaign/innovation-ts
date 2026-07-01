@@ -7,9 +7,8 @@
 //
 // Hover any card to see it in DetailCard; click to interact (meld / dogma).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { innovationAdapter as A, initialBgioState, type BgioState } from '../adapter/innovationAdapter';
-import { cardById } from '../card-data';
 import type { Color, ChoiceResponse } from '../engine/types';
 import { YourBoard, OpponentBoard, Hand, ScorePileStrip, panel, sectionTitle } from './Board';
 import { ChoicePrompt } from './Choice';
@@ -17,6 +16,7 @@ import { DetailCard, type DetailTarget } from './DetailCard';
 import { ReportDialog, type Severity } from './ReportDialog';
 import html2canvas from 'html2canvas';
 import { IconTotalsPanel, AchievementsPanel, CardsRemainingPanel } from './Panels';
+import { GameLogPanel, describeAction, type LogEntry } from './GameLog';
 import { pickAction } from '../ai/greedy';
 import { recordPlay } from 'digital-boardgame-framework';
 import { pageBg, textColor, cardBorder, displayPid } from './colors';
@@ -25,8 +25,6 @@ interface Props {
   numPlayers: number;
   aiSeats?: ReadonlySet<string>;
 }
-
-interface LogEntry { turn: number; text: string; }
 
 export function Game({ numPlayers, aiSeats }: Props) {
   const ai = aiSeats ?? new Set<string>();
@@ -403,73 +401,6 @@ function CurrentPlayerPanel({
   );
 }
 
-function GameLogPanel({
-  log, onReport, onUploadLogs,
-}: {
-  log: LogEntry[];
-  onReport?: () => void;
-  onUploadLogs?: () => void;
-}) {
-  // Auto-scroll to the most recent entry whenever the log grows.
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [log.length]);
-  return (
-    <div style={{
-      ...panel(),
-      display: 'flex', flexDirection: 'column',
-      // Fixed height matches the DetailCard's top-strip slot so the panel
-      // doesn't grow with the log — the inner div scrolls instead.
-      height: 200,
-      background: '#fbf7da',
-      overflow: 'hidden',
-    }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: 4,
-      }}>
-        <div style={{
-          fontSize: 11, color: textColor, opacity: 0.65,
-          fontFamily: 'ui-monospace, "Cascadia Mono", monospace',
-        }}>[log] Game log ({log.length})</div>
-        <div style={{ display: 'flex', gap: 4 }}>
-          {onReport && (
-            <button onClick={onReport} style={{
-              padding: '2px 8px', borderRadius: 3,
-              border: `1px solid ${cardBorder}`, background: '#e8e3c8',
-              color: textColor, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-            }}>Report a problem</button>
-          )}
-          {onUploadLogs && (
-            <button onClick={onUploadLogs} style={{
-              padding: '2px 8px', borderRadius: 3,
-              border: `1px solid ${cardBorder}`, background: '#e8e3c8',
-              color: textColor, cursor: 'pointer', fontSize: 11, fontWeight: 600,
-            }}>Upload logs</button>
-          )}
-        </div>
-      </div>
-      <div
-        ref={scrollRef}
-        style={{
-          flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
-          fontSize: 11,
-          fontFamily: 'ui-monospace, "Cascadia Mono", monospace',
-          color: textColor, lineHeight: 1.45,
-          background: '#fff', border: `1px solid ${cardBorder}`, borderRadius: 3,
-          padding: '4px 6px',
-        }}
-      >
-        {log.map((e, i) => (
-          <div key={i}>· {e.text}</div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // --------------------------------------------------------------------------
 // Bottom-strip action bar + game over.
 // --------------------------------------------------------------------------
@@ -505,37 +436,6 @@ function GameOverBanner({
       <button onClick={onNewGame} style={{ ...actionButton(), marginTop: 8 }}>New game</button>
     </div>
   );
-}
-
-// --------------------------------------------------------------------------
-// Log line generation. Translates an action + pre-state into a readable
-// one-liner like "P1 melds A1 The Wheel(Green)".
-// --------------------------------------------------------------------------
-
-function describeAction(
-  action: Parameters<typeof A.applyAction>[1],
-  who: string,
-  preG: BgioState['G'],
-): string | null {
-  const p = preG.players[who];
-  switch (action.kind) {
-    case 'draw': return `P${displayPid(who)} draws.`;
-    case 'meld': {
-      const id = p.hand[action.handIndex];
-      if (id === undefined || id < 0) return `P${displayPid(who)} melds.`;
-      const c = cardById(id);
-      return `P${displayPid(who)} melds A${c.age} ${c.title} (${c.color}).`;
-    }
-    case 'dogma': {
-      const id = preG.players[who].piles[action.color].cards[0];
-      if (id === undefined) return `P${displayPid(who)} activates dogma (${action.color}).`;
-      const c = cardById(id);
-      return `P${displayPid(who)} activates ${c.title} (${c.color}).`;
-    }
-    case 'achieve': return `P${displayPid(who)} claims Age ${action.age} achievement.`;
-    case 'resolveChoice': return null; // too noisy
-  }
-  return null;
 }
 
 // --------------------------------------------------------------------------
