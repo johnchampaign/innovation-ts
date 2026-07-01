@@ -74,7 +74,13 @@ export function scoreIndividual(
   }
 
   // Hand value. VB6 lines 611–613.
-  for (const id of p.hand) total += 2 * cardById(id).age;
+  // Hidden-card safe: when this evaluator runs inside the SERVER-DRIVEN AI,
+  // the framework hands the AI its own *redacted* view — the opponent's hand
+  // (and any card the AI simulates drawing from a face-down deck) shows up as
+  // HIDDEN (-1). cardById(-1) would throw, which previously bubbled out of
+  // pickAction and made the AI controller fall back to `legal[0]` (= draw)
+  // every turn. Treat an unknown card as age 0 so scoring never throws.
+  for (const id of p.hand) total += id >= 0 ? 2 * cardById(id).age : 0;
 
   // Score pile curve. VB6 lines 616–622.
   const cappedTop = Math.min(topAge, 8);

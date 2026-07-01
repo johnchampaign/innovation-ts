@@ -222,18 +222,22 @@ function tryAction(
   selfId: PlayerId,
   action: InnovationAction,
 ): TrialResult {
-  let after: BgioState;
+  // The WHOLE trial is wrapped: apply, dogma play-out, and scoring can each
+  // throw when simulating on a redacted view (a face-down deck yields HIDDEN
+  // (-1) cards that some card handlers cardById()). A throw must only discard
+  // THIS candidate (score -Inf) — never propagate to pickAction, which would
+  // trigger the controller's `legal[0]` (= draw) fallback and make the AI
+  // draw forever. Combined with the evaluator's hidden-card guard, this keeps
+  // meld/dogma candidates scorable so the AI actually builds a board.
   try {
-    after = A.applyAction(clone(state), action, selfId);
+    const after = playOutDogma(A.applyAction(clone(state), action, selfId), selfId);
+    if (action.kind === 'dogma' && isTotalNoOp(state, after)) {
+      return { score: Number.NEGATIVE_INFINITY, isNoOpDogma: true };
+    }
+    return { score: scoreRelative(after, selfId, 1), isNoOpDogma: false };
   } catch {
     return { score: Number.NEGATIVE_INFINITY, isNoOpDogma: false };
   }
-  // Run any resulting dogma to completion.
-  after = playOutDogma(after, selfId);
-  if (action.kind === 'dogma' && isTotalNoOp(state, after)) {
-    return { score: Number.NEGATIVE_INFINITY, isNoOpDogma: true };
-  }
-  return { score: scoreRelative(after, selfId, 1), isNoOpDogma: false };
 }
 
 /** Top-level greedy pick: enumerate legal actions, score each via a 1-ply

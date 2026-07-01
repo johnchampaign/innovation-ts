@@ -11,6 +11,7 @@ import { ALL_CARDS } from '../card-data';
 import { COLORS } from '../engine/types';
 import type { Color, ChoiceResponse, IconName } from '../engine/types';
 import { countIcons } from '../engine/icons';
+import { score, highestTopAge } from '../engine/mechanics';
 import { YourBoard, OpponentBoard, Hand, ScorePileStrip, panel, SectionHeader } from './Board';
 import { ChoicePrompt } from './Choice';
 import { pageBg, textColor, cardBorder, iconGlyph, displayPid } from './colors';
@@ -30,7 +31,14 @@ export function OnlineGame({ gameId, token }: Props) {
   useEffect(() => {
     if (identity?.token) void claimSeat(gameId, token, identity.token);
   }, [gameId, token, identity?.token]);
-  const game = useGame(client, { pollMs: 2000, pauseWhenHidden: true });
+  // trackLegalActions:false — we derive what's playable straight from the
+  // (always-fresh) redacted view below, not from a separate polled /legal
+  // fetch. The hook skips periodic refreshes while it's your turn, so a
+  // single hiccup on that /legal round-trip at turn-start could otherwise
+  // leave `legalActions` empty for the WHOLE turn — making the dogma pile
+  // un-clickable until a manual refresh. Deriving from the view is race-free
+  // and matches the adapter's own legality rules exactly.
+  const game = useGame(client, { pollMs: 2000, pauseWhenHidden: true, trackLegalActions: false });
   const [reportOpen, setReportOpen] = useState<null | 'bug' | 'logs'>(null);
   const [pendingScreenshot, setPendingScreenshot] = useState<string | undefined>(undefined);
 
@@ -121,10 +129,22 @@ export function OnlineGame({ gameId, token }: Props) {
   const onAchieve = (age: number) => submit({ kind: 'achieve', age });
   const onResolveChoice = (response: ChoiceResponse) => submit({ kind: 'resolveChoice', response });
 
-  const legal = game.legalActions;
-  const dogmaColors = new Set<Color>(legal.filter((a) => a.kind === 'dogma').map((a) => (a as { color: Color }).color));
-  const achievableAges = legal.filter((a) => a.kind === 'achieve').map((a) => (a as { age: number }).age);
-  const canDraw = legal.some((a) => a.kind === 'draw');
+  // Affordances derived from the view (mirrors innovationAdapter.enumerateLegal),
+  // available only on your own settled turn. Race-free vs. the polled /legal.
+  const me = you !== null ? G.players[you] : null;
+  const playable = yourTurn && !inDogma && me !== null;
+  // Dogma: any color you have a top card in.
+  const dogmaColors = new Set<Color>(
+    playable ? COLORS.filter((c) => me!.piles[c].cards.length > 0) : [],
+  );
+  // Achieve: age tiles still available where score ≥ 5×age and a top card of ≥age.
+  const achievableAges = playable
+    ? G.availableAgeAchievements.filter(
+        (age) => score(me!) >= 5 * age && highestTopAge(me!) >= age,
+      )
+    : [];
+  // Draw is always legal on your turn (the engine handles deck exhaustion).
+  const canDraw = playable;
 
   const opponents = Object.keys(G.players).filter((pid) => pid !== you);
 
