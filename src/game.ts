@@ -11,6 +11,7 @@ import { INVALID_MOVE } from 'boardgame.io/core';
 import './engine/handlers'; // register dogma handlers (side-effect import)
 import { ALL_CARDS, cardById } from './card-data';
 import { startDogma, resumeDogma } from './engine/dogma';
+import { logEvent } from './engine/log';
 import {
   achievementCount, checkAutoSpecials, highestTopAge, score, topCard,
 } from './engine/mechanics';
@@ -48,6 +49,7 @@ function setup({ ctx, random }: { ctx: Ctx; random: SetupApi }): InnovationState
     winnerOverride: null,
     removedFromGame: [],
     log: [],
+    turnNumber: 0,
   };
 
   for (const c of ALL_CARDS) g.decks[c.age].push(c.id);
@@ -125,7 +127,28 @@ const moves = {
     const me = ctx.currentPlayer;
     const age = Math.max(1, highestTopAge(G.players[me]));
     // draw() handles deck exhaustion → endByDraw.
-    drawInline(G, me, age);
+    const drawn = drawInline(G, me, age);
+    if (drawn) {
+      // Public line reveals only the age drawn (as the physical game does);
+      // the card's identity rides in a secret companion entry.
+      logEvent(G, {
+        kind: 'action.draw', side: me,
+        msg: `P${me} draws an Age ${drawn.age} card.`,
+        payload: { player: me, age: drawn.age },
+      });
+      const c = cardById(drawn.card);
+      logEvent(G, {
+        kind: 'action.draw.card', side: me, secret: true,
+        msg: `P${me} drew ${c.title} (Age ${c.age}, ${c.color}).`,
+        payload: { player: me, card: drawn.card },
+      });
+    } else {
+      logEvent(G, {
+        kind: 'game.deckExhausted', side: me,
+        msg: `P${me} must draw above Age 10 — the game ends.`,
+        payload: { player: me, requestedAge: age },
+      });
+    }
     spendAction(G, events);
   },
 
@@ -137,7 +160,13 @@ const moves = {
     if (handIndex < 0 || handIndex >= hand.length) return INVALID_MOVE;
     const cardId = hand[handIndex];
     hand.splice(handIndex, 1);
-    G.players[me].piles[cardById(cardId).color].cards.unshift(cardId);
+    const def = cardById(cardId);
+    G.players[me].piles[def.color].cards.unshift(cardId);
+    logEvent(G, {
+      kind: 'action.meld', side: me,
+      msg: `P${me} melds ${def.title} (Age ${def.age}, ${def.color}).`,
+      payload: { player: me, card: cardId, age: def.age, color: def.color },
+    });
     spendAction(G, events);
   },
 
@@ -147,6 +176,12 @@ const moves = {
     const me = ctx.currentPlayer;
     const top = topCard(G.players[me], color);
     if (top === null) return INVALID_MOVE;
+    const def = cardById(top);
+    logEvent(G, {
+      kind: 'action.dogma', side: me,
+      msg: `P${me} activates ${def.title} (${color}, ${def.dogmaIcon}).`,
+      payload: { player: me, card: top, color, icon: def.dogmaIcon },
+    });
     const done = startDogma(G, top, me);
     if (done) {
       spendAction(G, events);
@@ -165,6 +200,11 @@ const moves = {
     if (highestTopAge(p) < age) return INVALID_MOVE;
     G.availableAgeAchievements = G.availableAgeAchievements.filter((a) => a !== age);
     p.ageAchievements.push(age);
+    logEvent(G, {
+      kind: 'action.achieve', side: me,
+      msg: `P${me} claims the Age ${age} achievement.`,
+      payload: { player: me, age },
+    });
     spendAction(G, events);
   },
 
@@ -176,22 +216,34 @@ const moves = {
 function resolveChoiceMove({ G, events }: MoveApi, response: ChoiceResponse) {
   if (!G.pendingChoice) return INVALID_MOVE;
   if (!isValidResponse(G, response)) return INVALID_MOVE;
+  // Secret: a choice response can name hand cards the other player must not
+  // see (e.g. which card to return). The public consequences (melds, scores,
+  // splays) are visible on the board and via driver-level dogma events.
+  const chooser = G.pendingChoice.playerId;
+  logEvent(G, {
+    kind: 'action.choice', side: chooser, secret: true,
+    msg: `P${chooser} resolves "${G.pendingChoice.prompt}" (${G.pendingChoice.kind}).`,
+    payload: { player: chooser, choiceKind: G.pendingChoice.kind, response },
+  });
   const done = resumeDogma(G, response);
   syncChoiceStage(G, events); // re-pause with new owner, or clear if done
   if (done) spendAction(G, events); // the dogma action now completes
 }
 
-/** Inline draw so the move can also flip endByDraw; mirrors mechanics.draw. */
-function drawInline(g: InnovationState, playerId: string, age: number): void {
+/** Inline draw so the move can also flip endByDraw; mirrors mechanics.draw.
+ *  Returns the drawn card + actual age drawn from, or null on exhaustion. */
+function drawInline(g: InnovationState, playerId: string, age: number): { card: number; age: number } | null {
   let a = Math.max(1, age);
   while (a <= 10) {
     if (g.decks[a].length > 0) {
-      g.players[playerId].hand.push(g.decks[a].shift()!);
-      return;
+      const card = g.decks[a].shift()!;
+      g.players[playerId].hand.push(card);
+      return { card, age: a };
     }
     a++;
   }
   g.endByDraw = true;
+  return null;
 }
 
 /** Validate a choice response against the live pending choice. */
@@ -312,6 +364,13 @@ export const InnovationGame: Game<InnovationState> = {
       // First turn of the game = 1 action; every other turn = 2 (the common
       // case; refine the 3–4p opening nuance later).
       G.actionsRemaining = ctx.turn === 1 ? 1 : 2;
+      G.turnNumber = ctx.turn;
+      logEvent(G, {
+        kind: 'turn.begin',
+        side: ctx.currentPlayer,
+        msg: `— Turn ${ctx.turn}: Player ${ctx.currentPlayer} (${G.actionsRemaining} action${G.actionsRemaining === 1 ? '' : 's'}) —`,
+        payload: { player: ctx.currentPlayer, actions: G.actionsRemaining },
+      });
     },
     stages: {
       awaitingChoice: {

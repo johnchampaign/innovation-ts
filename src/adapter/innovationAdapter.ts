@@ -3,7 +3,7 @@
 // state (`{ G, ctx, plugins, … }`) so the `random` plugin's seed rides inside
 // the snapshot and shuffles replay deterministically.
 
-import type { GameAdapter, GameResult } from 'digital-boardgame-framework';
+import { redactGameLog, type GameAdapter, type GameResult } from 'digital-boardgame-framework';
 import { CreateGameReducer, InitializeGame } from 'boardgame.io/internal';
 import { InnovationGame, type InnovationGameOver } from '../game';
 import { highestTopAge, score, topCard } from '../engine/mechanics';
@@ -148,6 +148,8 @@ function redact(state: BgioState, viewer: PlayerId | null): BgioState {
       options: [], optional: G.pendingChoice.optional,
     };
   }
+  // Log: drop entries the viewer may not see (secret draws / choice payloads).
+  G.log = redactGameLog(G.log ?? [], viewer);
   return next;
 }
 
@@ -158,7 +160,7 @@ function resultOf(state: BgioState): GameResult<PlayerId> | null {
 }
 
 export const innovationAdapter: GameAdapter<BgioState, InnovationAction, PlayerId> = {
-  schemaVersion: 1,
+  schemaVersion: 2,
 
   applyAction(state, action, actor) {
     const input = structuredClone(state);
@@ -187,5 +189,17 @@ export const innovationAdapter: GameAdapter<BgioState, InnovationAction, PlayerI
   currentActor(state) { return currentActorOf(state); },
   viewFor(state, viewer) { return state.ctx.gameover ? state : redact(state, viewer); },
   result(state) { return resultOf(state); },
-  migrate() { throw new Error('innovationAdapter.migrate: no migrations yet (schemaVersion 1)'); },
+  // v1 → v2: State.log changed from string[] (always empty — never written)
+  // to GameLogEntry[], and G.turnNumber was added. Defensive: any non-array
+  // or legacy prose log resets to []; old snapshots only ever had [].
+  migrate(state, fromVersion) {
+    if (fromVersion >= 2) return state as BgioState;
+    const next = structuredClone(state) as BgioState;
+    const log = (next.G as { log?: unknown }).log;
+    next.G.log = Array.isArray(log)
+      ? (log.filter((e) => typeof e === 'object' && e !== null && 'kind' in e) as BgioState['G']['log'])
+      : [];
+    if (typeof next.G.turnNumber !== 'number') next.G.turnNumber = next.ctx.turn ?? 0;
+    return next;
+  },
 };

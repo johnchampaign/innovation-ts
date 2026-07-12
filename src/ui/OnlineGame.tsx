@@ -226,6 +226,13 @@ export function OnlineGame({ gameId, token }: Props) {
 
   const opponents = Object.keys(G.players).filter((pid) => pid !== you);
 
+  // Server-authoritative structured log (engine/log.ts, already redacted for
+  // this viewer by the adapter). Preferred over the client-side diff log when
+  // present; older snapshots (schema v1) had an empty log, so fall back.
+  const engineLog: LogEntry[] = (G.log ?? [])
+    .filter((e) => typeof e.msg === 'string' && e.msg.length > 0)
+    .map((e) => ({ turn: e.turn, text: e.msg! }));
+
   // Online games are always all-human (the AI only exists in the hotseat
   // `Game` component, which has no chat). So the human seat count is just the
   // total seat count. Gate chat on 2+ so a 1-seat online game (and, by
@@ -291,7 +298,7 @@ export function OnlineGame({ gameId, token }: Props) {
           </div>
         </div>
         <GameLogPanel
-          log={log}
+          log={engineLog.length > 0 ? engineLog : log}
           onReport={() => openReport('bug')}
           onUploadLogs={() => openReport('logs')}
         />

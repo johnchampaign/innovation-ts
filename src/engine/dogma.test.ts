@@ -37,7 +37,7 @@ function freshGame(numPlayers: number): InnovationState {
     endByDraw: false,
     winnerOverride: null,
     removedFromGame: [],
-    log: [],
+    log: [], turnNumber: 0,
   };
   for (const c of ALL_CARDS) g.decks[c.age].push(c.id);
   for (let i = 0; i < numPlayers; i++) g.players[String(i)] = newPlayer();

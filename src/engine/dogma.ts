@@ -30,6 +30,7 @@ import { cardById } from '../card-data';
 import { countIcons } from './icons';
 import { getDogma } from './registry';
 import { draw, highestTopAge } from './mechanics';
+import { logEvent } from './log';
 import type {
   ChoiceResponse, DogmaRun, EffectContext, InnovationState,
 } from './types';
@@ -137,11 +138,23 @@ function drive(g: InnovationState, response: ChoiceResponse | undefined): boolea
 
       // Credit sharedBonus BEFORE draining nested frames so that if the
       // drain pauses, the resume path doesn't need to redo this step.
+      if (progressed && effect.isDemand) {
+        logEvent(g, {
+          kind: 'dogma.demand', side: run.activatingPlayerId,
+          msg: `P${targetId} is affected by ${def.title}'s demand.`,
+          payload: { card: run.cardId, level: run.currentLevel, target: targetId },
+        });
+      }
       if (
         progressed
         && !effect.isDemand
         && targetId !== run.activatingPlayerId
       ) {
+        logEvent(g, {
+          kind: 'dogma.share', side: run.activatingPlayerId,
+          msg: `P${targetId} shares ${def.title}'s effect.`,
+          payload: { card: run.cardId, level: run.currentLevel, target: targetId },
+        });
         run.sharedBonus = true;
       }
 
@@ -172,6 +185,11 @@ function drive(g: InnovationState, response: ChoiceResponse | undefined): boolea
   // All levels finished. Shared-bonus draw fires once per dogma.
   if (run.sharedBonus && !g.endByDraw && !g.winnerOverride) {
     const activator = g.players[run.activatingPlayerId];
+    logEvent(g, {
+      kind: 'dogma.shareDraw', side: run.activatingPlayerId,
+      msg: `P${run.activatingPlayerId} draws a bonus card for the shared dogma.`,
+      payload: { player: run.activatingPlayerId, card: run.cardId },
+    });
     draw(g, run.activatingPlayerId, Math.max(1, highestTopAge(activator)));
   }
   g.dogmaRun = null;

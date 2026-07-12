@@ -10,6 +10,8 @@
 // that lived on C# methods (ColorStack.Meld, PlayerState.Score, …) moves to
 // free functions in mechanics.ts that operate on these structs.
 
+import type { GameLogEntry } from 'digital-boardgame-framework';
+
 export type Color = 'yellow' | 'red' | 'purple' | 'blue' | 'green';
 export const COLORS: readonly Color[] = ['yellow', 'red', 'purple', 'blue', 'green'];
 
@@ -191,7 +193,12 @@ export interface InnovationState {
    *  Lives here (rather than vanishing) so card conservation invariants
    *  still hold. The 9 reserved achievement tiles ride here at setup too. */
   removedFromGame: number[];
-  log: string[];
+  /** Structured game log (log-format v2). Written ONLY via engine/log.ts
+   *  logEvent(); capped at LOG_CAP entries. See docs/log-events.md. */
+  log: GameLogEntry<string>[];
+  /** bgio ctx.turn mirrored into G at turn.onBegin so the dogma driver (which
+   *  has no ctx) can stamp log entries. 0 during setup. */
+  turnNumber: number;
 }
 
 /** Context handed to a dogma handler. Mirrors the C# `DogmaContext`: a handler
