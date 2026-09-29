@@ -7,7 +7,7 @@
 //
 // Hover any card to see it in DetailCard; click to interact (meld / dogma).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { innovationAdapter as A, initialBgioState, type BgioState } from '../adapter/innovationAdapter';
 import type { Color, ChoiceResponse } from '../engine/types';
 import { YourBoard, OpponentBoard, Hand, ScorePileStrip, panel, sectionTitle } from './Board';
@@ -18,7 +18,7 @@ import html2canvas from 'html2canvas';
 import { IconTotalsPanel, AchievementsPanel, CardsRemainingPanel } from './Panels';
 import { GameLogPanel, describeAction, type LogEntry } from './GameLog';
 import { pickAction } from '../ai/greedy';
-import { recordPlay } from 'digital-boardgame-framework';
+import { recordPlay, recordFinish } from 'digital-boardgame-framework';
 import { pageBg, textColor, cardBorder, displayPid } from './colors';
 
 interface Props {
@@ -36,7 +36,12 @@ export function Game({ numPlayers, aiSeats }: Props) {
   // solo-vs-AI from the lobby). Best-effort — recordPlay never throws or
   // blocks. Empty deps = exactly once on mount; "New game" records its own
   // start in onNewGame below. (No StrictMode in main.tsx, so this fires once.)
+  // `startMode` remembers the mode of the game currently in progress so the
+  // matching finish beacon fires exactly once (see the gameover effect below);
+  // it's cleared once the finish is recorded and re-armed by "New game".
+  const startMode = useRef<'ai' | 'hotseat' | null>(null);
   useEffect(() => {
+    startMode.current = playMode;
     recordPlay('innovation', playMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -139,6 +144,22 @@ export function Game({ numPlayers, aiSeats }: Props) {
   const G = state.G;
   const inDogma = G.pendingChoice !== null;
 
+  // Record one "game finished" per started game, on the transition into
+  // gameover. Outcome only for vs-AI, from the human's (seat '0') view:
+  // sole winner → win, shared tie → draw, otherwise loss.
+  useEffect(() => {
+    if (!gameover || !startMode.current) return;
+    const mode = startMode.current;
+    startMode.current = null;
+    if (mode === 'ai') {
+      const winners = gameover.winners;
+      const outcome = !winners.includes('0') ? 'loss' : winners.length === 1 ? 'win' : 'draw';
+      recordFinish('innovation', mode, { outcome });
+    } else {
+      recordFinish('innovation', mode);
+    }
+  }, [gameover]);
+
   const apply = useCallback((action: Parameters<typeof A.applyAction>[1], actorOverride?: string) => {
     const who = actorOverride ?? actor;
     if (who === null) return;
@@ -176,6 +197,7 @@ export function Game({ numPlayers, aiSeats }: Props) {
     setState(initialBgioState(numPlayers));
     setLog([{ turn: 0, text: '(setup) New game.' }]);
     setHover(null);
+    startMode.current = playMode;
     recordPlay('innovation', playMode); // a fresh local game = one more play
   };
 
