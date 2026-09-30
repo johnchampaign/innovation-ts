@@ -63,6 +63,10 @@ function server(env: Env, origin: string) {
     codec: jsonCodec<BgioState>(),
     store: new SupabaseStore(supabase),
     aiControllers: innovationAiControllers,   // server-driven AI seats (rated)
+    // maxSteps, not perSeat: demands/shared dogma hand the actor to other seats
+    // mid-turn (~1 seat switch per AI turn at 3-4p), so perSeat would split at
+    // every hand-off. Greedy AI costs ~25 ms/action, so 10 (the floor) ≈ 250 ms/request.
+    aiSlice: { maxSteps: 10 },
     notifier: new NoopNotifier(),
     // Best-effort play counter: createGame fires an 'online' beacon to the
     // shared games-hub counter. Never blocks or fails game creation.
